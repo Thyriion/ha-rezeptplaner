@@ -3,18 +3,9 @@ from collections import defaultdict
 
 import httpx
 
+from .categories import CATEGORIES as CATEGORY_ORDER
 from .database import get_current_plan
 from .models import ShoppingItem, ShoppingList
-
-CATEGORY_ORDER = [
-    "Gemüse & Obst",
-    "Fleisch & Fisch",
-    "Milchprodukte & Eier",
-    "Getreide & Backwaren",
-    "Konserven & Trockenwaren",
-    "Gewürze & Öle",
-    "Sonstiges",
-]
 
 _HA_API = "http://supervisor/core/api"
 

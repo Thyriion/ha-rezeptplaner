@@ -1,16 +1,17 @@
 from openai import AsyncOpenAI
 
-from .config import load_options
+from .config import AppConfig, load
 
 
-def get_client() -> tuple[AsyncOpenAI, str]:
-    opts = load_options()
+def get_client(cfg: AppConfig | None = None) -> tuple[AsyncOpenAI, str]:
+    if cfg is None:
+        cfg = load()
     client = AsyncOpenAI(
-        base_url=opts["ai_base_url"],
-        api_key=opts["ai_api_key"] or "no-key",  # Ollama braucht keinen Key
+        base_url=cfg.base_url,
+        api_key=cfg.api_key or "no-key",  # Ollama braucht keinen Key
         timeout=60.0,
     )
-    return client, opts["ai_model"]
+    return client, cfg.model
 
 
 async def test_connection() -> tuple[bool, str]:

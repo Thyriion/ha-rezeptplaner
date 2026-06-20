@@ -3,7 +3,9 @@ import logging
 from datetime import date, timedelta
 
 from .ai_client import get_client
-from .models import Meal, Recipe, WeekPlan
+from .categories import CATEGORIES
+from .config import AppConfig, load
+from .models import Meal, Recipe, Settings, WeekPlan
 
 logger = logging.getLogger(__name__)
 
@@ -27,15 +29,13 @@ _DAY_DE = {
 }
 _MEAL_DE = {"lunch": "Mittagessen", "dinner": "Abendessen"}
 
-INGREDIENT_CATEGORIES = [
-    "Gemüse & Obst",
-    "Fleisch & Fisch",
-    "Milchprodukte & Eier",
-    "Getreide & Backwaren",
-    "Konserven & Trockenwaren",
-    "Gewürze & Öle",
-    "Sonstiges",
-]
+_REASON_DE = {
+    "mag_ich_nicht": "mag ich nicht",
+    "zu_teuer": "zu teuer",
+    "zu_aufwendig": "zu aufwendig",
+    "schon_gegessen": "haben wir letzte Woche schon gegessen",
+    "sonstiges": "sonstiger Grund",
+}
 
 _RECIPE_SCHEMA = """{
   "name": "Rezeptname",
@@ -52,38 +52,38 @@ _RECIPE_SCHEMA = """{
 }"""
 
 
-def _build_system_prompt(settings: dict, recent_swaps: list[dict]) -> str:
-    diet = ", ".join(settings.get("diet_types", [])) or "Standard"
-    dislikes = ", ".join(settings.get("disliked_foods", [])) or "keine"
-    favorites = ", ".join(settings.get("favorite_foods", [])) or "keine Angabe"
-    time_limit = settings.get("max_cooking_time", 30)
-    budget = settings.get("budget", "mittel")
-    persons = settings.get("persons", 2)
+class PlannerAI:
+    def __init__(self, cfg: AppConfig | None = None) -> None:
+        self._cfg = cfg or load()
 
-    lines = [
-        f"Du bist ein freundlicher Kochassistent für einen deutschen Haushalt mit {persons} Personen.",
-        f"Ernährungsform: {diet}",
-        f"Nicht gemochte Lebensmittel: {dislikes}",
-        f"Lieblingsgerichte/-zutaten: {favorites}",
-        f"Maximale Kochzeit pro Mahlzeit: {time_limit} Minuten",
-        f"Budget: {budget}",
-    ]
-    if recent_swaps:
-        lines.append("\nZuletzt abgelehnte Gerichte — bitte nicht wiederholen:")
-        for s in recent_swaps[:10]:
-            lines.append(f"  - {s['recipe']} (Grund: {s['reason']})")
-    return "\n".join(lines)
+    def _client(self) -> tuple:
+        return get_client(self._cfg)
 
+    def _system_prompt(self, settings: Settings, recent_swaps: list[dict]) -> str:
+        diet = ", ".join(settings.diet_types) or "Standard"
+        dislikes = ", ".join(settings.disliked_foods) or "keine"
+        favorites = ", ".join(settings.favorite_foods) or "keine Angabe"
+        lines = [
+            f"Du bist ein freundlicher Kochassistent für einen deutschen Haushalt mit {settings.persons} Personen.",
+            f"Ernährungsform: {diet}",
+            f"Nicht gemochte Lebensmittel: {dislikes}",
+            f"Lieblingsgerichte/-zutaten: {favorites}",
+            f"Maximale Kochzeit pro Mahlzeit: {settings.max_cooking_time} Minuten",
+            f"Budget: {settings.budget}",
+        ]
+        if recent_swaps:
+            lines.append("\nZuletzt abgelehnte Gerichte — bitte nicht wiederholen:")
+            for s in recent_swaps[:10]:
+                lines.append(f"  - {s['recipe']} (Grund: {s['reason']})")
+        return "\n".join(lines)
 
-async def generate_week_plan(settings: dict, recent_swaps: list[dict]) -> WeekPlan:
-    client, model = get_client()
-
-    slot_list = "\n".join(
-        f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in MEAL_SLOTS
-    )
-    cat_list = ", ".join(INGREDIENT_CATEGORIES)
-
-    prompt = f"""Erstelle einen Wochenplan mit genau 9 Mahlzeiten für diese Slots:
+    async def generate_plan(self, settings: Settings, recent_swaps: list[dict]) -> WeekPlan:
+        client, model = self._client()
+        slot_list = "\n".join(
+            f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in MEAL_SLOTS
+        )
+        cat_list = ", ".join(CATEGORIES)
+        prompt = f"""Erstelle einen Wochenplan mit genau 9 Mahlzeiten für diese Slots:
 {slot_list}
 
 Antworte ausschließlich mit folgendem JSON-Format (kein Text drumherum):
@@ -105,51 +105,40 @@ Regeln:
 - Genau 9 Einträge entsprechend der Slot-Liste oben
 - Lieblingsgerichte gelegentlich einbauen
 """
-
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": _build_system_prompt(settings, recent_swaps)},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.85,
-    )
-
-    data = json.loads(response.choices[0].message.content)
-    meals = [
-        Meal(
-            day=m["day"],
-            meal_type=m["meal_type"],
-            recipe=Recipe.model_validate(m["recipe"]),
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": self._system_prompt(settings, recent_swaps)},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.85,
         )
-        for m in data["meals"]
-    ]
+        data = json.loads(response.choices[0].message.content)
+        meals = [
+            Meal(
+                day=m["day"],
+                meal_type=m["meal_type"],
+                recipe=Recipe.model_validate(m["recipe"]),
+            )
+            for m in data["meals"]
+        ]
+        today = date.today()
+        monday = today - timedelta(days=today.weekday())
+        return WeekPlan(week_start=monday.isoformat(), meals=meals)
 
-    today = date.today()
-    monday = today - timedelta(days=today.weekday())
-    return WeekPlan(week_start=monday.isoformat(), meals=meals)
-
-
-async def generate_replacement(
-    old_recipe_name: str,
-    reason: str,
-    day: str,
-    meal_type: str,
-    settings: dict,
-    recent_swaps: list[dict],
-) -> Recipe:
-    client, model = get_client()
-
-    reason_de = {
-        "mag_ich_nicht": "mag ich nicht",
-        "zu_teuer": "zu teuer",
-        "zu_aufwendig": "zu aufwendig",
-        "schon_gegessen": "haben wir letzte Woche schon gegessen",
-        "sonstiges": "sonstiger Grund",
-    }.get(reason, reason)
-
-    prompt = f"""Ersetze das Gericht "{old_recipe_name}" für {_DAY_DE[day]} ({_MEAL_DE[meal_type]}).
+    async def replace_meal(
+        self,
+        old_recipe_name: str,
+        reason: str,
+        day: str,
+        meal_type: str,
+        settings: Settings,
+        recent_swaps: list[dict],
+    ) -> Recipe:
+        client, model = self._client()
+        reason_de = _REASON_DE.get(reason, reason)
+        prompt = f"""Ersetze das Gericht "{old_recipe_name}" für {_DAY_DE[day]} ({_MEAL_DE[meal_type]}).
 Grund: {reason_de}
 
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
@@ -160,44 +149,40 @@ Regeln:
 - Beachte die Ernährungsform und die Präferenzen aus dem System-Prompt
 - Alle Texte auf Deutsch
 """
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": self._system_prompt(settings, recent_swaps)},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.9,
+        )
+        data = json.loads(response.choices[0].message.content)
+        return Recipe.model_validate(data)
 
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": _build_system_prompt(settings, recent_swaps)},
-            {"role": "user", "content": prompt},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.9,
-    )
+    async def chat(
+        self,
+        message: str,
+        settings: Settings,
+        current_plan: WeekPlan | None,
+        recent_swaps: list[dict],
+    ) -> tuple[str, bool]:
+        client, model = self._client()
+        plan_summary = ""
+        if current_plan:
+            lines = [f"Aktueller Wochenplan (ab {current_plan.week_start}):"]
+            for meal in current_plan.meals:
+                lines.append(
+                    f"  {_DAY_DE[meal.day]} {_MEAL_DE[meal.meal_type]}: {meal.recipe.name}"
+                )
+            plan_summary = "\n".join(lines)
 
-    data = json.loads(response.choices[0].message.content)
-    return Recipe.model_validate(data)
+        system = self._system_prompt(settings, recent_swaps)
+        if plan_summary:
+            system += f"\n\n{plan_summary}"
 
-
-async def chat(
-    message: str,
-    settings: dict,
-    current_plan: WeekPlan | None,
-    recent_swaps: list[dict],
-) -> tuple[str, bool]:
-    """Returns (reply_text, wants_new_plan)."""
-    client, model = get_client()
-
-    plan_summary = ""
-    if current_plan:
-        lines = [f"Aktueller Wochenplan (ab {current_plan.week_start}):"]
-        for meal in current_plan.meals:
-            lines.append(
-                f"  {_DAY_DE[meal.day]} {_MEAL_DE[meal.meal_type]}: {meal.recipe.name}"
-            )
-        plan_summary = "\n".join(lines)
-
-    system = _build_system_prompt(settings, recent_swaps)
-    if plan_summary:
-        system += f"\n\n{plan_summary}"
-
-    intent_prompt = f"""Nutzernachricht: "{message}"
+        intent_prompt = f"""Nutzernachricht: "{message}"
 
 Antworte mit JSON:
 {{
@@ -205,15 +190,14 @@ Antworte mit JSON:
   "wants_plan": true oder false (true wenn der Nutzer einen neuen Wochenplan haben möchte)
 }}"""
 
-    response = await client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": intent_prompt},
-        ],
-        response_format={"type": "json_object"},
-        temperature=0.7,
-    )
-
-    data = json.loads(response.choices[0].message.content)
-    return data.get("reply", ""), bool(data.get("wants_plan", False))
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": intent_prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.7,
+        )
+        data = json.loads(response.choices[0].message.content)
+        return data.get("reply", ""), bool(data.get("wants_plan", False))

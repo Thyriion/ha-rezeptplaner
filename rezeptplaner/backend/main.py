@@ -7,16 +7,11 @@ from fastapi.staticfiles import StaticFiles
 from .ai_client import test_connection as ai_test_connection
 from .database import (
     confirm_plan,
-    create_plan,
     delete_current_plan,
     get_current_plan,
-    get_recent_swaps,
     get_settings,
     init_db,
-    record_swap,
-    save_meals,
     save_settings,
-    update_meal,
 )
 from .models import (
     ChatRequest,
@@ -27,8 +22,8 @@ from .models import (
     SwapRequest,
     WeekPlan,
 )
-from .recipes import chat as ai_chat
-from .recipes import generate_replacement, generate_week_plan
+from .recipes import PlannerAI
+from .service import PlanService
 from .shopping import build_shopping_list
 from .shopping import push_to_ha as ha_push
 
@@ -41,6 +36,7 @@ async def lifespan(app: FastAPI):
 
 ingress_path = os.environ.get("INGRESS_PATH", "")
 app = FastAPI(root_path=ingress_path, lifespan=lifespan)
+_service = PlanService(PlannerAI())
 
 
 # --- Health ---
@@ -55,7 +51,7 @@ async def health():
 @app.get("/api/settings", response_model=Settings)
 async def read_settings():
     data = await get_settings()
-    return Settings(**data) if data else Settings()
+    return Settings(**(data or {}))
 
 
 @app.post("/api/settings", response_model=Settings)
@@ -76,28 +72,7 @@ async def test_connection_endpoint():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    settings = await get_settings()
-    recent_swaps = await get_recent_swaps()
-    current_plan = await get_current_plan()
-
-    reply, wants_plan = await ai_chat(req.message, settings, current_plan, recent_swaps)
-
-    new_plan: WeekPlan | None = None
-    if wants_plan:
-        new_plan = await generate_week_plan(settings, recent_swaps)
-        plan_id = await create_plan(new_plan.week_start)
-        meal_ids = await save_meals(plan_id, new_plan.meals)
-        for meal, mid in zip(new_plan.meals, meal_ids):
-            meal.id = mid
-        new_plan.id = plan_id
-        # Feste Bestätigungsnachricht — AI kannte den Plan noch nicht beim Reply
-        highlights = ", ".join(m.recipe.name for m in new_plan.meals[:3])
-        reply = (
-            f"Dein Wochenplan für die komplette Woche steht! "
-            f"Highlights: {highlights} – und 6 weitere Gerichte. "
-            f'Im Tab "Wochenplan" kannst du alles einsehen, Rezepte aufklappen und einzelne Mahlzeiten tauschen.'
-        )
-
+    reply, new_plan = await _service.handle_chat(req.message)
     return ChatResponse(reply=reply, plan=new_plan)
 
 
@@ -125,29 +100,11 @@ async def delete_plan():
 
 @app.post("/api/plan/swap")
 async def swap_meal(req: SwapRequest):
-    plan = await get_current_plan()
-    if not plan:
-        raise HTTPException(status_code=404, detail="Kein aktiver Wochenplan")
-
-    meal = next((m for m in plan.meals if m.id == req.meal_id), None)
-    if not meal:
-        raise HTTPException(status_code=404, detail="Mahlzeit nicht gefunden")
-
-    settings = await get_settings()
-    recent_swaps = await get_recent_swaps()
-
-    await record_swap(req.meal_id, meal.recipe.name, req.reason)
-    new_recipe = await generate_replacement(
-        old_recipe_name=meal.recipe.name,
-        reason=req.reason,
-        day=meal.day,
-        meal_type=meal.meal_type,
-        settings=settings,
-        recent_swaps=recent_swaps,
-    )
-    await update_meal(req.meal_id, new_recipe)
-    meal.recipe = new_recipe
-    return meal
+    try:
+        meal = await _service.swap_meal(req.meal_id, req.reason)
+        return meal
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # --- Shopping List ---
