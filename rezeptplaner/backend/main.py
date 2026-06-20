@@ -5,18 +5,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from .ai_client import test_connection as ai_test_connection
-from .database import (
-    confirm_plan,
-    delete_plan_by_id,
-    get_all_plan_metas,
-    get_current_plan,
-    get_plan_by_id,
-    get_ratings,
-    get_settings,
-    init_db,
-    save_rating,
-    save_settings,
-)
+from .database import init_db
+from .ha_client import NoopAdapter, SupervisorAdapter
 from .models import (
     AddRecipeRequest,
     ChatRequest,
@@ -32,8 +22,7 @@ from .models import (
 )
 from .recipes import PlannerAI
 from .service import PlanService
-from .shopping import build_shopping_list
-from .shopping import push_to_ha as ha_push
+from .shopping import build_shopping_list, push_items
 
 
 @asynccontextmanager
@@ -58,14 +47,12 @@ async def health():
 
 @app.get("/api/settings", response_model=Settings)
 async def read_settings():
-    data = await get_settings()
-    return Settings(**(data or {}))
+    return await _service.get_settings()
 
 
 @app.post("/api/settings", response_model=Settings)
 async def write_settings(settings: Settings):
-    await save_settings(settings)
-    return settings
+    return await _service.update_settings(settings)
 
 
 # --- AI Provider Test ---
@@ -88,18 +75,17 @@ async def chat(req: ChatRequest):
 
 @app.get("/api/plans", response_model=list[PlanMeta])
 async def list_plans():
-    metas = await get_all_plan_metas()
-    return [PlanMeta(**m) for m in metas]
+    return await _service.list_plans()
 
 
 @app.get("/api/plan", response_model=WeekPlan | None)
 async def get_plan():
-    return await get_current_plan()
+    return await _service.get_plan()
 
 
 @app.get("/api/plan/{plan_id}", response_model=WeekPlan | None)
-async def get_plan_by_id_endpoint(plan_id: int):
-    plan = await get_plan_by_id(plan_id)
+async def get_plan_by_id(plan_id: int):
+    plan = await _service.get_plan(plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan nicht gefunden")
     return plan
@@ -112,32 +98,31 @@ async def generate_plan():
 
 
 @app.post("/api/plan/confirm")
-async def confirm_current_plan():
-    plan = await get_current_plan()
+async def confirm_plan():
+    plan = await _service.get_plan()
     if not plan or plan.id is None:
         raise HTTPException(status_code=404, detail="Kein aktiver Wochenplan")
-    await confirm_plan(plan.id)
+    await _service.confirm_plan(plan.id)
     return {"ok": True}
 
 
 @app.delete("/api/plan/{plan_id}")
-async def delete_plan_endpoint(plan_id: int):
-    deleted = await delete_plan_by_id(plan_id)
+async def delete_plan(plan_id: int):
+    deleted = await _service.delete_plan(plan_id)
     return {"ok": deleted}
 
 
 @app.post("/api/plan/swap")
 async def swap_meal(req: SwapRequest):
     try:
-        meal = await _service.swap_meal(req.meal_id, req.reason)
-        return meal
+        return await _service.swap_meal(req.meal_id, req.reason)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.post("/api/plan/add-recipe", response_model=Meal)
 async def add_recipe_to_plan(req: AddRecipeRequest):
-    plan = await get_plan_by_id(req.plan_id)
+    plan = await _service.get_plan(req.plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan nicht gefunden")
     return await _service.add_recipe_to_plan(req.plan_id, req.day, req.meal_type, req.recipe)
@@ -147,8 +132,7 @@ async def add_recipe_to_plan(req: AddRecipeRequest):
 
 @app.post("/api/recipe/single")
 async def get_single_recipe():
-    recipe = await _service.generate_single_recipe()
-    return recipe
+    return await _service.generate_single_recipe()
 
 
 # --- Ratings ---
@@ -157,13 +141,13 @@ async def get_single_recipe():
 async def rate_recipe(req: RatingRequest):
     if not 1 <= req.score <= 10:
         raise HTTPException(status_code=400, detail="Score muss zwischen 1 und 10 liegen")
-    await save_rating(req.recipe_name, req.score)
+    await _service.rate(req.recipe_name, req.score)
     return {"ok": True}
 
 
 @app.get("/api/recipe/ratings")
 async def get_all_ratings():
-    return await get_ratings()
+    return await _service.ratings()
 
 
 # --- Shopping List ---
@@ -176,9 +160,13 @@ async def get_shopping_list(plan_id: int | None = None):
 @app.post("/api/shopping-list/push-to-ha")
 async def push_shopping_list_to_ha(plan_id: int | None = None):
     shopping_list = await build_shopping_list(plan_id)
-    return await ha_push(shopping_list)
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    client = SupervisorAdapter(token) if token else NoopAdapter()
+    if not token:
+        return {"ok": False, "error": "SUPERVISOR_TOKEN nicht verfügbar — ist 'auth_api: true' in der Add-on Konfiguration gesetzt?"}
+    return await push_items(shopping_list, client)
 
 
-# --- Frontend (muss zuletzt stehen) ---
+# --- Frontend ---
 
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
