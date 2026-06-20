@@ -36,9 +36,14 @@ CREATE TABLE IF NOT EXISTS swaps (
     reason      TEXT    NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS ratings (
+    recipe_name TEXT    PRIMARY KEY,
+    score       INTEGER NOT NULL DEFAULT 5,
+    updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
-# Migration: add recipe_name column to existing swaps tables
 _MIGRATIONS = [
     "ALTER TABLE swaps ADD COLUMN recipe_name TEXT NOT NULL DEFAULT ''",
 ]
@@ -51,7 +56,7 @@ async def init_db() -> None:
             try:
                 await db.execute(migration)
             except Exception:
-                pass  # column already exists
+                pass
         await db.commit()
 
 
@@ -86,6 +91,59 @@ async def create_plan(week_start: str) -> int:
         return cur.lastrowid
 
 
+async def get_all_plan_metas() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT mp.id, mp.week_start, COUNT(m.id) as meal_count
+               FROM meal_plans mp
+               LEFT JOIN meals m ON m.plan_id = mp.id
+               GROUP BY mp.id
+               ORDER BY mp.created_at DESC"""
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "week_start": r[1], "meal_count": r[2]} for r in rows]
+
+
+def _meals_from_rows(meal_rows) -> list[Meal]:
+    return [
+        Meal(
+            id=r[0],
+            day=r[1],
+            meal_type=r[2],
+            recipe=Recipe.model_validate_json(r[3]),
+            confirmed=bool(r[4]),
+        )
+        for r in meal_rows
+    ]
+
+
+async def get_plan_by_id(plan_id: int) -> WeekPlan | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, week_start FROM meal_plans WHERE id = ?", (plan_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        async with db.execute(
+            "SELECT id, day, meal_type, recipe_json, confirmed FROM meals WHERE plan_id = ?",
+            (plan_id,),
+        ) as cur:
+            meal_rows = await cur.fetchall()
+    return WeekPlan(id=row[0], week_start=row[1], meals=_meals_from_rows(meal_rows))
+
+
+async def get_current_plan() -> WeekPlan | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM meal_plans ORDER BY created_at DESC LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return await get_plan_by_id(row[0])
+
+
 async def save_meals(plan_id: int, meals: list[Meal]) -> list[int]:
     ids = []
     async with aiosqlite.connect(DB_PATH) as db:
@@ -99,33 +157,14 @@ async def save_meals(plan_id: int, meals: list[Meal]) -> list[int]:
     return ids
 
 
-async def get_current_plan() -> WeekPlan | None:
+async def add_meal_to_plan(plan_id: int, meal: Meal) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT id, week_start FROM meal_plans ORDER BY created_at DESC LIMIT 1"
-        ) as cur:
-            row = await cur.fetchone()
-        if not row:
-            return None
-        plan_id, week_start = row
-
-        async with db.execute(
-            "SELECT id, day, meal_type, recipe_json, confirmed FROM meals WHERE plan_id = ?",
-            (plan_id,),
-        ) as cur:
-            meal_rows = await cur.fetchall()
-
-    meals = [
-        Meal(
-            id=r[0],
-            day=r[1],
-            meal_type=r[2],
-            recipe=Recipe.model_validate_json(r[3]),
-            confirmed=bool(r[4]),
+        cur = await db.execute(
+            "INSERT INTO meals (plan_id, day, meal_type, recipe_json) VALUES (?, ?, ?, ?)",
+            (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json()),
         )
-        for r in meal_rows
-    ]
-    return WeekPlan(id=plan_id, week_start=week_start, meals=meals)
+        await db.commit()
+        return cur.lastrowid
 
 
 async def confirm_plan(plan_id: int) -> None:
@@ -145,28 +184,20 @@ async def update_meal(meal_id: int, recipe: Recipe) -> None:
         await db.commit()
 
 
-async def record_swap(meal_id: int, recipe_name: str, reason: str) -> None:
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO swaps (meal_id, recipe_name, reason) VALUES (?, ?, ?)",
-            (meal_id, recipe_name, reason),
-        )
-        await db.commit()
-
-
-async def get_recent_swaps(limit: int = 20) -> list[dict]:
-    """Returns swap history — survives plan deletion because recipe_name is stored directly."""
+async def delete_plan_by_id(plan_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT recipe_name, reason, created_at FROM swaps ORDER BY created_at DESC LIMIT ?",
-            (limit,),
+            "SELECT id FROM meal_plans WHERE id = ?", (plan_id,)
         ) as cur:
-            rows = await cur.fetchall()
-    return [{"recipe": r[0], "reason": r[1], "at": r[2]} for r in rows]
+            if not await cur.fetchone():
+                return False
+        await db.execute("DELETE FROM meals WHERE plan_id = ?", (plan_id,))
+        await db.execute("DELETE FROM meal_plans WHERE id = ?", (plan_id,))
+        await db.commit()
+    return True
 
 
 async def delete_current_plan() -> bool:
-    """Deletes the current plan and its meals. Swap history is preserved."""
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT id FROM meal_plans ORDER BY created_at DESC LIMIT 1"
@@ -179,3 +210,60 @@ async def delete_current_plan() -> bool:
         await db.execute("DELETE FROM meal_plans WHERE id = ?", (plan_id,))
         await db.commit()
     return True
+
+
+# --- Swaps ---
+
+async def record_swap(meal_id: int, recipe_name: str, reason: str) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO swaps (meal_id, recipe_name, reason) VALUES (?, ?, ?)",
+            (meal_id, recipe_name, reason),
+        )
+        await db.commit()
+
+
+async def get_recent_swaps(limit: int = 20) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT recipe_name, reason, created_at FROM swaps ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"recipe": r[0], "reason": r[1], "at": r[2]} for r in rows]
+
+
+# --- Ratings ---
+
+async def save_rating(recipe_name: str, score: int) -> None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO ratings (recipe_name, score, updated_at)
+               VALUES (?, ?, CURRENT_TIMESTAMP)
+               ON CONFLICT(recipe_name) DO UPDATE SET score = excluded.score, updated_at = CURRENT_TIMESTAMP""",
+            (recipe_name, score),
+        )
+        await db.commit()
+
+
+async def get_ratings() -> dict[str, int]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT recipe_name, score FROM ratings") as cur:
+            rows = await cur.fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+# --- Recent recipe names for diversity ---
+
+async def get_recent_recipe_names(limit: int = 30) -> list[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT DISTINCT json_extract(m.recipe_json, '$.name')
+               FROM meals m
+               JOIN meal_plans mp ON m.plan_id = mp.id
+               ORDER BY mp.created_at DESC
+               LIMIT ?""",
+            (limit,),
+        ) as cur:
+            rows = await cur.fetchall()
+    return [r[0] for r in rows if r[0]]

@@ -150,6 +150,37 @@
   </div>
 </div>
 
+<!-- ── Add-to-Plan Modal ─────────────────────────────────── -->
+<div id="add-to-plan-modal" class="overlay hidden">
+  <div class="modal-card small">
+    <div class="modal-header">
+      <h2>Zum Plan hinzufügen</h2>
+      <button class="btn-icon" onclick="closeAddToPlanModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="add-to-plan-recipe-name" class="swap-meal-name"></p>
+      <label>Wochentag</label>
+      <div class="option-group vertical" id="add-day-options">
+        <button class="option-btn" data-value="monday">Montag</button>
+        <button class="option-btn" data-value="tuesday">Dienstag</button>
+        <button class="option-btn" data-value="wednesday">Mittwoch</button>
+        <button class="option-btn" data-value="thursday">Donnerstag</button>
+        <button class="option-btn" data-value="friday">Freitag</button>
+        <button class="option-btn" data-value="saturday">Samstag</button>
+        <button class="option-btn" data-value="sunday">Sonntag</button>
+      </div>
+      <label>Mahlzeit</label>
+      <div class="option-group" id="add-meal-type-options">
+        <button class="option-btn" data-value="lunch">Mittagessen</button>
+        <button class="option-btn" data-value="dinner">Abendessen</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="add-to-plan-confirm-btn" class="btn btn-primary" onclick="confirmAddToPlan()" disabled>Hinzufügen</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Swap Modal ───────────────────────────────────────────── -->
 <div id="swap-modal" class="overlay hidden">
   <div class="modal-card small">
@@ -226,18 +257,27 @@
 
   <section id="tab-chat" class="tab-content active">
     <div id="chat-messages"></div>
+    <div class="chat-quick-actions">
+      <button class="quick-btn" id="btn-gen-plan" onclick="quickGeneratePlan()">📅 Wochenplan generieren</button>
+      <button class="quick-btn" id="btn-gen-recipe" onclick="quickSingleRecipe()">🍽 Einzelnes Rezept</button>
+    </div>
     <div class="chat-input-bar">
-      <input type="text" id="chat-input" placeholder="z.B. „Gib mir Rezepte für diese Woche"" onkeydown="chatKeydown(event)">
+      <input type="text" id="chat-input" placeholder="Schreib eine Nachricht…" onkeydown="chatKeydown(event)">
       <button class="btn btn-primary" id="btn-send" onclick="sendChat()">↑</button>
     </div>
   </section>
 
   <section id="tab-plan" class="tab-content">
+    <div id="plan-nav" class="plan-nav hidden">
+      <button class="btn-icon plan-nav-btn" id="plan-nav-prev" onclick="navigatePlan(-1)">‹</button>
+      <span id="plan-nav-label"></span>
+      <button class="btn-icon plan-nav-btn" id="plan-nav-next" onclick="navigatePlan(1)">›</button>
+    </div>
     <div id="plan-content">
       <div class="empty-state">
         <div class="empty-icon">📅</div>
         <p>Noch kein Wochenplan</p>
-        <p class="hint">Geh in den Chat und frag nach Rezepten!</p>
+        <p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p>
       </div>
     </div>
   </section>

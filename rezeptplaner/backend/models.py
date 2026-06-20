@@ -40,12 +40,19 @@ class Meal(BaseModel):
     meal_type: str  # "lunch" | "dinner"
     recipe: Recipe
     confirmed: bool = False
+    rating: Optional[int] = None
 
 
 class WeekPlan(BaseModel):
     id: Optional[int] = None
     week_start: str
     meals: List[Meal]
+
+
+class PlanMeta(BaseModel):
+    id: int
+    week_start: str
+    meal_count: int
 
 
 class ChatRequest(BaseModel):
@@ -55,11 +62,24 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     plan: Optional[WeekPlan] = None
+    single_recipe: Optional[Recipe] = None
 
 
 class SwapRequest(BaseModel):
     meal_id: int
-    reason: str  # "mag_ich_nicht" | "zu_teuer" | "zu_aufwendig" | "schon_gegessen" | "sonstiges"
+    reason: str
+
+
+class AddRecipeRequest(BaseModel):
+    recipe: Recipe
+    plan_id: int
+    day: str
+    meal_type: str
+
+
+class RatingRequest(BaseModel):
+    recipe_name: str
+    score: int  # 1–10
 
 
 class ShoppingItem(BaseModel):

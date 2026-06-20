@@ -4,7 +4,7 @@ from collections import defaultdict
 import httpx
 
 from .categories import CATEGORIES as CATEGORY_ORDER
-from .database import get_current_plan
+from .database import get_current_plan, get_plan_by_id
 from .models import ShoppingItem, ShoppingList
 
 _HA_API = "http://supervisor/core/api"
@@ -15,12 +15,11 @@ def _fmt(amount: float, unit: str) -> str:
     return f"{n} {unit}".strip() if unit else str(n)
 
 
-async def build_shopping_list() -> ShoppingList:
-    plan = await get_current_plan()
+async def build_shopping_list(plan_id: int | None = None) -> ShoppingList:
+    plan = await get_plan_by_id(plan_id) if plan_id else await get_current_plan()
     if not plan:
         return ShoppingList(items_by_category={})
 
-    # (name_lower, unit_lower) → ShoppingItem
     aggregated: dict[tuple[str, str], ShoppingItem] = {}
 
     for meal in plan.meals:
@@ -52,7 +51,7 @@ async def build_shopping_list() -> ShoppingList:
 async def push_to_ha(shopping_list: ShoppingList) -> dict:
     token = os.environ.get("SUPERVISOR_TOKEN", "")
     if not token:
-        return {"ok": False, "error": "SUPERVISOR_TOKEN nicht verfügbar — läuft die App außerhalb von Home Assistant?"}
+        return {"ok": False, "error": "SUPERVISOR_TOKEN nicht verfügbar — ist 'auth_api: true' in der Add-on Konfiguration gesetzt?"}
 
     headers = {
         "Authorization": f"Bearer {token}",
@@ -66,10 +65,17 @@ async def push_to_ha(shopping_list: ShoppingList) -> dict:
                 label = f"{_fmt(item.amount, item.unit)} {item.name}"
                 try:
                     resp = await client.post(
-                        f"{_HA_API}/services/shopping_list/add_item",
-                        json={"name": label},
+                        f"{_HA_API}/services/todo/add_item",
+                        json={"entity_id": "todo.einkaufsliste", "item": label},
                         headers=headers,
                     )
+                    if resp.status_code == 404:
+                        # Fallback: ältere HA-Versionen nutzen shopping_list Integration
+                        resp = await client.post(
+                            f"{_HA_API}/services/shopping_list/add_item",
+                            json={"name": label},
+                            headers=headers,
+                        )
                     resp.raise_for_status()
                     pushed += 1
                 except Exception:

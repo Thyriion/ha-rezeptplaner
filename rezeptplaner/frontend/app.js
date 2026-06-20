@@ -4,12 +4,18 @@
 
 const state = {
   settings: null,
-  plan: null,
+  allPlans: [],          // PlanMeta[]  (ordered newest→oldest)
+  currentPlanIdx: 0,     // index into allPlans
+  plan: null,            // currently viewed WeekPlan
+  ratings: {},           // { recipeName: score }
   wizardStep: 1,
   wizardData: { persons: 2, diet_types: [], disliked_foods: [], favorite_foods: [], max_cooking_time: 30, budget: 'mittel' },
   swapMealId: null,
   swapMealName: null,
   swapReason: null,
+  pendingSingleRecipe: null,  // Recipe waiting to be added to plan
+  addDay: null,
+  addMealType: null,
 };
 
 const cooking = {
@@ -59,13 +65,41 @@ async function init() {
     if (!s || s.persons === undefined) { showWizard(); return; }
     state.settings = s;
     showApp();
-    await loadPlan();
+    await Promise.all([loadAllPlans(), loadRatings()]);
   } catch {
     showApp();
     appendMsg('assistant', 'Fehler beim Laden. Bitte prüfe ob das Backend läuft.');
   }
 }
 function showApp() { document.getElementById('app').classList.remove('hidden'); }
+
+async function loadAllPlans() {
+  try {
+    const metas = await apiGet('api/plans');
+    state.allPlans = metas;
+    state.currentPlanIdx = 0;
+    if (metas.length > 0) {
+      await loadPlanById(metas[0].id);
+    }
+    updatePlanNav();
+  } catch { /* silent */ }
+}
+
+async function loadPlanById(planId) {
+  try {
+    const plan = await apiGet(`api/plan/${planId}`);
+    if (plan) {
+      state.plan = plan;
+      renderPlan();
+    }
+  } catch { /* silent */ }
+}
+
+async function loadRatings() {
+  try {
+    state.ratings = await apiGet('api/recipe/ratings');
+  } catch { /* silent */ }
+}
 
 // ── Tabs ──────────────────────────────────────────────────────────
 
@@ -85,19 +119,91 @@ async function sendChat() {
   if (!msg) return;
   input.value = '';
   appendMsg('user', msg);
+  await _doChat({ message: msg });
+}
+
+async function quickGeneratePlan() {
+  const btn = document.getElementById('btn-gen-plan');
+  btn.disabled = true;
+  appendMsg('user', 'Wochenplan generieren');
+  try {
+    const res = await apiPost('api/plan/generate', {});
+    appendMsg('assistant', res.reply, false, res.plan);
+    if (res.plan) await _onNewPlan(res.plan);
+  } catch {
+    appendMsg('assistant', 'Fehler beim Generieren. Bitte prüfe die KI-Konfiguration.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function quickSingleRecipe() {
+  const btn = document.getElementById('btn-gen-recipe');
+  btn.disabled = true;
+  appendMsg('user', 'Einzelnes Rezept vorschlagen');
+  const typing = appendMsg('assistant', '…', true);
+  try {
+    const recipe = await apiPost('api/recipe/single', {});
+    typing.remove();
+    state.pendingSingleRecipe = recipe;
+    appendSingleRecipeMsg(recipe);
+  } catch {
+    typing.remove();
+    appendMsg('assistant', 'Fehler beim Generieren. Bitte prüfe die KI-Konfiguration.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function appendSingleRecipeMsg(recipe) {
+  const wrap = document.getElementById('chat-messages');
+  const el = document.createElement('div');
+  el.className = 'msg assistant';
+
+  const time = recipe.cooking_time_minutes;
+  const n = recipe.nutrition_per_serving;
+  el.innerHTML = `<strong>${recipe.name}</strong><br>
+<span style="color:var(--text-dim);font-size:0.85em">⏱ ${time} Min · ${n.calories} kcal · ${n.protein_g}g Protein</span>`;
+
+  if (state.allPlans.length > 0) {
+    const btn = document.createElement('button');
+    btn.className = 'msg-plan-link';
+    btn.textContent = '+ Zum Plan hinzufügen';
+    btn.onclick = () => openAddToPlanModal(recipe);
+    el.appendChild(document.createElement('br'));
+    el.appendChild(btn);
+  }
+
+  wrap.appendChild(el);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function _doChat(body) {
   const typing = appendMsg('assistant', '…', true);
   const btn = document.getElementById('btn-send');
+  const input = document.getElementById('chat-input');
   btn.disabled = true; input.disabled = true;
   try {
-    const res = await apiPost('api/chat', { message: msg });
+    const res = await apiPost('api/chat', body);
     typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
-    if (res.plan) { state.plan = res.plan; renderPlan(); }
+    if (res.plan) await _onNewPlan(res.plan);
   } catch {
     typing.remove();
     appendMsg('assistant', 'Fehler beim Senden. Bitte prüfe die KI-Konfiguration.');
   } finally {
     btn.disabled = false; input.disabled = false; input.focus();
+  }
+}
+
+async function _onNewPlan(plan) {
+  await loadAllPlans();
+  // Finde den neuen Plan (neuester) und zeige ihn
+  if (state.allPlans.length > 0) {
+    state.currentPlanIdx = 0;
+    state.plan = await apiGet(`api/plan/${state.allPlans[0].id}`);
+    renderPlan();
+    updatePlanNav();
   }
 }
 
@@ -119,20 +225,48 @@ function appendMsg(role, text, isTyping = false, plan = null) {
   return el;
 }
 
-// ── Plan ──────────────────────────────────────────────────────────
+// ── Plan Navigation ───────────────────────────────────────────────
 
-async function loadPlan() {
-  try {
-    const plan = await apiGet('api/plan');
-    if (plan) { state.plan = plan; renderPlan(); }
-  } catch { /* silent */ }
+function updatePlanNav() {
+  const nav = document.getElementById('plan-nav');
+  const label = document.getElementById('plan-nav-label');
+  const prev = document.getElementById('plan-nav-prev');
+  const next = document.getElementById('plan-nav-next');
+
+  if (state.allPlans.length === 0) {
+    nav.classList.add('hidden');
+    return;
+  }
+  nav.classList.remove('hidden');
+
+  const meta = state.allPlans[state.currentPlanIdx];
+  const d = new Date(meta.week_start + 'T00:00:00');
+  const end = new Date(d); end.setDate(d.getDate() + 6);
+  const fmt = (dt) => dt.toLocaleDateString('de-DE', { day:'2-digit', month:'2-digit' });
+  label.textContent = `${fmt(d)} – ${fmt(end)}`;
+
+  // allPlans ist newest→oldest, also prev = ältere Woche (höherer Index)
+  prev.disabled = state.currentPlanIdx >= state.allPlans.length - 1;
+  next.disabled = state.currentPlanIdx <= 0;
 }
+
+async function navigatePlan(dir) {
+  // dir=-1 → ältere Woche (höherer idx), dir=+1 → neuere Woche (niedrigerer idx)
+  const newIdx = state.currentPlanIdx + (-dir);
+  if (newIdx < 0 || newIdx >= state.allPlans.length) return;
+  state.currentPlanIdx = newIdx;
+  const meta = state.allPlans[newIdx];
+  await loadPlanById(meta.id);
+  updatePlanNav();
+}
+
+// ── Plan ──────────────────────────────────────────────────────────
 
 function renderPlan() {
   const plan = state.plan;
   const container = document.getElementById('plan-content');
   if (!plan?.meals?.length) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Geh in den Chat und frag nach Rezepten!</p></div>`;
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p></div>`;
     return;
   }
 
@@ -140,8 +274,9 @@ function renderPlan() {
   const byDay = {};
   for (const meal of plan.meals) (byDay[meal.day] = byDay[meal.day] || []).push(meal);
 
+  const meta = state.allPlans[state.currentPlanIdx];
   let html = `<div class="plan-toolbar">
-    <button class="btn btn-danger btn-sm" onclick="deletePlan()">🗑 Plan löschen</button>
+    <button class="btn btn-danger btn-sm" onclick="deletePlan(${plan.id})">🗑 Woche löschen</button>
   </div>`;
 
   for (const day of DAY_ORDER) {
@@ -166,6 +301,8 @@ function renderMealCard(meal, isConfirmed) {
   const r = meal.recipe, n = r.nutrition_per_serving;
   const disabled = (isConfirmed || meal.confirmed) ? 'disabled' : '';
   const amt = i => `${i.amount === Math.floor(i.amount) ? Math.floor(i.amount) : i.amount} ${i.unit}`;
+  const currentRating = state.ratings[r.name] ?? 5;
+  const stars = renderStars(r.name, currentRating);
 
   return `<div class="plan-meal" id="meal-${meal.id}">
     <div class="plan-meal-header" onclick="toggleMeal(${meal.id})">
@@ -185,12 +322,36 @@ function renderMealCard(meal, isConfirmed) {
         <div class="nut-item"><span class="nut-value">${n.carbs_g}g</span><span class="nut-label">Kohlenhydrate</span></div>
         <div class="nut-item"><span class="nut-value">${n.fat_g}g</span><span class="nut-label">Fett</span></div>
       </div>
+      <div class="rating-row">
+        <span class="section-label" style="margin:0">Bewertung</span>
+        ${stars}
+      </div>
       <p class="section-label">Zutaten</p>
       <ul class="ingredients-list">${r.ingredients.map(i => `<li><span>${i.name}</span><span class="ing-amount">${amt(i)}</span></li>`).join('')}</ul>
       <p class="section-label">Zubereitung</p>
       <ol class="steps-list">${r.steps.map(s => `<li>${s}</li>`).join('')}</ol>
     </div>
   </div>`;
+}
+
+function renderStars(recipeName, currentScore) {
+  const safe = recipeName.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  let html = '<div class="stars">';
+  for (let i = 1; i <= 10; i++) {
+    const active = i <= currentScore ? 'active' : '';
+    html += `<button class="star-btn ${active}" onclick="event.stopPropagation();rateMeal('${safe}',${i})" title="${i}/10">★</button>`;
+  }
+  html += `<span class="star-score">${currentScore}/10</span></div>`;
+  return html;
+}
+
+async function rateMeal(recipeName, score) {
+  try {
+    await apiPost('api/recipe/rate', { recipe_name: recipeName, score });
+    state.ratings[recipeName] = score;
+    renderPlan();
+    showToast(`Bewertet: ${score}/10`, 'success');
+  } catch { showToast('Fehler beim Bewerten.', 'error'); }
 }
 
 function toggleMeal(id) { document.getElementById(`meal-${id}`)?.classList.toggle('open'); }
@@ -205,14 +366,66 @@ async function confirmPlan() {
   } catch { showToast('Fehler beim Bestätigen.', 'error'); }
 }
 
-async function deletePlan() {
-  if (!confirm('Wochenplan wirklich löschen? Deine Vorlieben und der Tausch-Verlauf bleiben erhalten.')) return;
+async function deletePlan(planId) {
+  if (!confirm('Diese Woche wirklich löschen? Deine Vorlieben und der Tausch-Verlauf bleiben erhalten.')) return;
   try {
-    await apiDelete('api/plan');
+    await apiDelete(`api/plan/${planId}`);
     state.plan = null;
-    renderPlan();
+    await loadAllPlans();
     showToast('Wochenplan gelöscht.', 'success');
+    if (state.allPlans.length === 0) {
+      document.getElementById('plan-content').innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p></div>`;
+    }
   } catch { showToast('Fehler beim Löschen.', 'error'); }
+}
+
+// ── Add-to-Plan Modal ─────────────────────────────────────────────
+
+function openAddToPlanModal(recipe) {
+  state.pendingSingleRecipe = recipe;
+  state.addDay = null;
+  state.addMealType = null;
+  document.getElementById('add-to-plan-recipe-name').textContent = recipe.name;
+  document.querySelectorAll('#add-day-options .option-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#add-meal-type-options .option-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('add-to-plan-confirm-btn').disabled = true;
+  document.getElementById('add-to-plan-modal').classList.remove('hidden');
+}
+
+function closeAddToPlanModal() {
+  document.getElementById('add-to-plan-modal').classList.add('hidden');
+}
+
+function _checkAddToPlanReady() {
+  document.getElementById('add-to-plan-confirm-btn').disabled = !(state.addDay && state.addMealType);
+}
+
+async function confirmAddToPlan() {
+  if (!state.pendingSingleRecipe || !state.addDay || !state.addMealType) return;
+  const planId = state.allPlans[state.currentPlanIdx]?.id;
+  if (!planId) { showToast('Kein aktiver Plan vorhanden.', 'error'); return; }
+
+  const btn = document.getElementById('add-to-plan-confirm-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  try {
+    const meal = await apiPost('api/plan/add-recipe', {
+      recipe: state.pendingSingleRecipe,
+      plan_id: planId,
+      day: state.addDay,
+      meal_type: state.addMealType,
+    });
+    if (state.plan) state.plan.meals.push(meal);
+    closeAddToPlanModal();
+    renderPlan();
+    showToast('Rezept zum Plan hinzugefügt!', 'success');
+    switchTab('plan');
+  } catch {
+    showToast('Fehler beim Hinzufügen.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Hinzufügen';
+  }
 }
 
 // ── Swap ──────────────────────────────────────────────────────────
@@ -271,18 +484,15 @@ function renderCookingStep() {
   document.getElementById('cooking-step-num').textContent = `Schritt ${i + 1} / ${total}`;
   document.getElementById('cooking-step-text').textContent = steps[i];
 
-  // Dots
   const dots = document.getElementById('cooking-dots');
   dots.innerHTML = steps.map((_, idx) =>
     `<span class="cooking-dot ${idx < i ? 'done' : idx === i ? 'active' : ''}"></span>`
   ).join('');
 
-  // Nav buttons
   document.getElementById('cooking-prev').disabled = i === 0;
   const nextBtn = document.getElementById('cooking-next');
   nextBtn.textContent = i === total - 1 ? '✓ Fertig' : 'Weiter →';
 
-  // Timer
   stopTimer();
   const secs = parseStepTime(steps[i]);
   const timerSection = document.getElementById('cooking-timer-section');
@@ -361,8 +571,10 @@ function updateTimerDisplay() {
 
 async function loadShopping() {
   const container = document.getElementById('shopping-content');
+  const planId = state.plan?.id;
   try {
-    const list = await apiGet('api/shopping-list');
+    const url = planId ? `api/shopping-list?plan_id=${planId}` : 'api/shopping-list';
+    const list = await apiGet(url);
     renderShopping(list, container);
   } catch {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>Fehler beim Laden.</p></div>`;
@@ -383,8 +595,8 @@ function renderShopping(list, container) {
     html += `<div class="shopping-category"><div class="shopping-cat-header">${icon} ${cat}</div>`;
     for (const item of items) {
       const n = item.amount === Math.floor(item.amount) ? Math.floor(item.amount) : item.amount;
-      html += `<label class="shopping-item" onclick="toggleCheck(this)">
-        <input type="checkbox" onclick="event.stopPropagation();toggleCheck(this.closest('.shopping-item'))">
+      html += `<label class="shopping-item">
+        <input type="checkbox" onchange="toggleCheck(this.closest('.shopping-item'))">
         <span class="item-name">${item.name}</span>
         <span class="item-amount">${n} ${item.unit}</span>
       </label>`;
@@ -401,8 +613,10 @@ function toggleCheck(el) {
 }
 
 async function pushToHA() {
+  const planId = state.plan?.id;
   try {
-    const res = await apiPost('api/shopping-list/push-to-ha', {});
+    const url = planId ? `api/shopping-list/push-to-ha?plan_id=${planId}` : 'api/shopping-list/push-to-ha';
+    const res = await apiPost(url, {});
     res.ok
       ? showToast(`${res.pushed} Artikel zur HA Einkaufsliste hinzugefügt!`, 'success')
       : showToast(res.error || 'Fehler beim Pushen.', 'error');
@@ -434,7 +648,7 @@ async function wizardNext() {
     state.settings = state.wizardData;
     document.getElementById('wizard').classList.add('hidden');
     showApp();
-    appendMsg('assistant', 'Alles klar! Ich kenne jetzt eure Vorlieben.\n\nSchreib einfach „Gib mir Rezepte für diese Woche" um loszulegen! 🍽');
+    appendMsg('assistant', 'Alles klar! Ich kenne jetzt eure Vorlieben.\n\nKlicke "Wochenplan generieren" oder schreib mir einfach was du dir vorstellst! 🍽');
   } catch { showToast('Fehler beim Speichern.', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Fertig'; }
 }
@@ -484,22 +698,26 @@ function adjustSettingsPersons(d) {
   el.textContent = Math.max(1, Math.min(10, parseInt(el.textContent) + d));
 }
 
-// ── Tags ──────────────────────────────────────────────────────────
+// ── Tags (case-insensitive) ───────────────────────────────────────
 
 const tagValues = {};
+
 function addTag(prefix) {
   const input = document.getElementById(`${prefix}-input`);
-  const val = input.value.trim();
-  if (!val) return;
+  const raw = input.value.trim();
+  if (!raw) return;
   if (!tagValues[prefix]) tagValues[prefix] = [];
-  if (!tagValues[prefix].includes(val)) {
-    tagValues[prefix].push(val);
+  const lower = raw.toLowerCase();
+  const duplicate = tagValues[prefix].some(v => v.toLowerCase() === lower);
+  if (!duplicate) {
+    tagValues[prefix].push(raw);
     if (prefix === 'disliked') state.wizardData.disliked_foods = tagValues[prefix];
     if (prefix === 'favorite') state.wizardData.favorite_foods = tagValues[prefix];
     renderTagList(prefix, tagValues[prefix]);
   }
   input.value = '';
 }
+
 function removeTag(prefix, val) {
   tagValues[prefix] = (tagValues[prefix]||[]).filter(v => v !== val);
   if (prefix === 'disliked') state.wizardData.disliked_foods = tagValues[prefix];
@@ -552,6 +770,26 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.classList.add('active');
       state.swapReason = btn.dataset.value;
       document.getElementById('swap-confirm-btn').disabled = false;
+    })
+  );
+
+  // Add-to-plan day selection
+  document.querySelectorAll('#add-day-options .option-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#add-day-options .option-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.addDay = btn.dataset.value;
+      _checkAddToPlanReady();
+    })
+  );
+
+  // Add-to-plan meal type selection
+  document.querySelectorAll('#add-meal-type-options .option-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#add-meal-type-options .option-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.addMealType = btn.dataset.value;
+      _checkAddToPlanReady();
     })
   );
 

@@ -1,5 +1,5 @@
 name: Rezeptplaner
-version: "0.2.2"
+version: "0.3.0"
 slug: rezeptplaner
 description: KI-gestützter Wochenrezeptplaner
 url: https://github.com/Thyriion/ha-rezeptplaner
@@ -11,6 +11,7 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:food-fork-drink
 panel_title: Rezeptplaner
+auth_api: true
 map:
   - data
 options:

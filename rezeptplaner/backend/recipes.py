@@ -9,7 +9,6 @@ from .models import Meal, Recipe, Settings, WeekPlan
 
 logger = logging.getLogger(__name__)
 
-# Mo–Fr: Abendessen | Sa–So: Mittag + Abendessen
 MEAL_SLOTS = [
     ("monday",    "dinner"),
     ("tuesday",   "dinner"),
@@ -59,7 +58,13 @@ class PlannerAI:
     def _client(self) -> tuple:
         return get_client(self._cfg)
 
-    def _system_prompt(self, settings: Settings, recent_swaps: list[dict]) -> str:
+    def _system_prompt(
+        self,
+        settings: Settings,
+        recent_swaps: list[dict],
+        ratings: dict[str, int] | None = None,
+        recent_recipe_names: list[str] | None = None,
+    ) -> str:
         diet = ", ".join(settings.diet_types) or "Standard"
         dislikes = ", ".join(settings.disliked_foods) or "keine"
         favorites = ", ".join(settings.favorite_foods) or "keine Angabe"
@@ -67,7 +72,7 @@ class PlannerAI:
             f"Du bist ein freundlicher Kochassistent für einen deutschen Haushalt mit {settings.persons} Personen.",
             f"Ernährungsform: {diet}",
             f"Nicht gemochte Lebensmittel: {dislikes}",
-            f"Lieblingsgerichte/-zutaten: {favorites}",
+            f"Lieblingsgerichte/-zutaten: {favorites} — diese sollen höchstens 1× pro Woche vorkommen und als Inspiration dienen, nicht zwingend wörtlich umgesetzt werden.",
             f"Maximale Kochzeit pro Mahlzeit: {settings.max_cooking_time} Minuten",
             f"Budget: {settings.budget}",
         ]
@@ -75,9 +80,30 @@ class PlannerAI:
             lines.append("\nZuletzt abgelehnte Gerichte — bitte nicht wiederholen:")
             for s in recent_swaps[:10]:
                 lines.append(f"  - {s['recipe']} (Grund: {s['reason']})")
+        if recent_recipe_names:
+            lines.append("\nIn den letzten Wochen bereits gekocht — bitte weitgehend vermeiden:")
+            for name in recent_recipe_names[:20]:
+                lines.append(f"  - {name}")
+        if ratings:
+            excluded = [n for n, s in ratings.items() if s < 3]
+            preferred = [n for n, s in ratings.items() if s >= 8]
+            if excluded:
+                lines.append("\nDiese Gerichte wurden schlecht bewertet und sollen NICHT vorgeschlagen werden:")
+                for name in excluded:
+                    lines.append(f"  - {name}")
+            if preferred:
+                lines.append("\nDiese Gerichte wurden sehr gut bewertet — gerne öfter einplanen:")
+                for name in preferred:
+                    lines.append(f"  - {name}")
         return "\n".join(lines)
 
-    async def generate_plan(self, settings: Settings, recent_swaps: list[dict]) -> WeekPlan:
+    async def generate_plan(
+        self,
+        settings: Settings,
+        recent_swaps: list[dict],
+        ratings: dict[str, int] | None = None,
+        recent_recipe_names: list[str] | None = None,
+    ) -> WeekPlan:
         client, model = self._client()
         slot_list = "\n".join(
             f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in MEAL_SLOTS
@@ -103,16 +129,19 @@ Regeln:
 - "category" bei Zutaten: {cat_list}
 - Alle Texte auf Deutsch
 - Genau 9 Einträge entsprechend der Slot-Liste oben
-- Lieblingsgerichte gelegentlich einbauen
+- VIELFALT: Wähle mindestens 4 verschiedene Küchenstile/Länder (z.B. Deutsch, Italienisch, Asiatisch, Mexikanisch, Mediterran, Indisch…)
+- VIELFALT: Keine zwei Gerichte mit derselben Hauptzutat (z.B. nicht zweimal Hähnchen)
+- VIELFALT: Abwechslung bei Fleisch, Fisch, vegetarisch — nicht alles vom gleichen Typ
+- Lieblingsgerichte/-zutaten höchstens 1× einbauen und zufällig auf verschiedene Wochentage verteilen
 """
         response = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": self._system_prompt(settings, recent_swaps)},
+                {"role": "system", "content": self._system_prompt(settings, recent_swaps, ratings, recent_recipe_names)},
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.85,
+            temperature=0.95,
         )
         data = json.loads(response.choices[0].message.content)
         meals = [
@@ -127,6 +156,37 @@ Regeln:
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
 
+    async def generate_single_recipe(
+        self,
+        settings: Settings,
+        recent_swaps: list[dict],
+        ratings: dict[str, int] | None = None,
+        recent_recipe_names: list[str] | None = None,
+    ) -> Recipe:
+        client, model = self._client()
+        cat_list = ", ".join(CATEGORIES)
+        prompt = f"""Schlage ein einzelnes Rezept vor.
+
+Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
+{_RECIPE_SCHEMA}
+
+Regeln:
+- "category" bei Zutaten: {cat_list}
+- Alle Texte auf Deutsch
+- Berücksichtige die Präferenzen aus dem System-Prompt
+"""
+        response = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": self._system_prompt(settings, recent_swaps, ratings, recent_recipe_names)},
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.95,
+        )
+        data = json.loads(response.choices[0].message.content)
+        return Recipe.model_validate(data)
+
     async def replace_meal(
         self,
         old_recipe_name: str,
@@ -135,6 +195,7 @@ Regeln:
         meal_type: str,
         settings: Settings,
         recent_swaps: list[dict],
+        ratings: dict[str, int] | None = None,
     ) -> Recipe:
         client, model = self._client()
         reason_de = _REASON_DE.get(reason, reason)
@@ -145,18 +206,18 @@ Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
 {_RECIPE_SCHEMA}
 
 Regeln:
-- Wähle etwas komplett anderes als "{old_recipe_name}"
+- Wähle etwas komplett anderes als "{old_recipe_name}" — anderer Küchenstil, andere Hauptzutat
 - Beachte die Ernährungsform und die Präferenzen aus dem System-Prompt
 - Alle Texte auf Deutsch
 """
         response = await client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": self._system_prompt(settings, recent_swaps)},
+                {"role": "system", "content": self._system_prompt(settings, recent_swaps, ratings)},
                 {"role": "user", "content": prompt},
             ],
             response_format={"type": "json_object"},
-            temperature=0.9,
+            temperature=0.95,
         )
         data = json.loads(response.choices[0].message.content)
         return Recipe.model_validate(data)
@@ -186,7 +247,7 @@ Regeln:
 
 Antworte mit JSON:
 {{
-  "reply": "deine freundliche Antwort auf Deutsch",
+  "reply": "deine freundliche, kurze Antwort auf Deutsch",
   "wants_plan": true oder false (true wenn der Nutzer einen neuen Wochenplan haben möchte)
 }}"""
 
