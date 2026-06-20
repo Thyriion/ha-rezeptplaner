@@ -8,6 +8,7 @@ from .ai_client import test_connection as ai_test_connection
 from .database import (
     confirm_plan,
     create_plan,
+    delete_current_plan,
     get_current_plan,
     get_recent_swaps,
     get_settings,
@@ -89,6 +90,13 @@ async def chat(req: ChatRequest):
         for meal, mid in zip(new_plan.meals, meal_ids):
             meal.id = mid
         new_plan.id = plan_id
+        # Feste Bestätigungsnachricht — AI kannte den Plan noch nicht beim Reply
+        highlights = ", ".join(m.recipe.name for m in new_plan.meals[:3])
+        reply = (
+            f"Dein Wochenplan für die komplette Woche steht! "
+            f"Highlights: {highlights} – und 6 weitere Gerichte. "
+            f"Im Tab „Wochenplan" kannst du alles einsehen, Rezepte aufklappen und einzelne Mahlzeiten tauschen."
+        )
 
     return ChatResponse(reply=reply, plan=new_plan)
 
@@ -109,6 +117,12 @@ async def confirm_current_plan():
     return {"ok": True}
 
 
+@app.delete("/api/plan")
+async def delete_plan():
+    deleted = await delete_current_plan()
+    return {"ok": deleted}
+
+
 @app.post("/api/plan/swap")
 async def swap_meal(req: SwapRequest):
     plan = await get_current_plan()
@@ -122,7 +136,7 @@ async def swap_meal(req: SwapRequest):
     settings = await get_settings()
     recent_swaps = await get_recent_swaps()
 
-    await record_swap(req.meal_id, req.reason)
+    await record_swap(req.meal_id, meal.recipe.name, req.reason)
     new_recipe = await generate_replacement(
         old_recipe_name=meal.recipe.name,
         reason=req.reason,

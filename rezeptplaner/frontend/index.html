@@ -16,7 +16,6 @@
       <div class="progress-bar"><div id="wizard-bar"></div></div>
     </div>
 
-    <!-- Step 1: Persons -->
     <div class="wizard-step" data-step="1">
       <h2>Für wie viele Personen kochst du?</h2>
       <div class="number-control">
@@ -27,7 +26,6 @@
       <p class="hint">Portionsgrößen werden entsprechend angepasst.</p>
     </div>
 
-    <!-- Step 2: Diet -->
     <div class="wizard-step hidden" data-step="2">
       <h2>Welche Ernährungsform passt zu euch?</h2>
       <p class="hint">Mehrere Optionen möglich.</p>
@@ -42,7 +40,6 @@
       </div>
     </div>
 
-    <!-- Step 3: Dislikes -->
     <div class="wizard-step hidden" data-step="3">
       <h2>Was esst ihr gar nicht?</h2>
       <p class="hint">Zutaten oder Gerichte die komplett ausgeschlossen werden sollen.</p>
@@ -55,7 +52,6 @@
       </div>
     </div>
 
-    <!-- Step 4: Favorites -->
     <div class="wizard-step hidden" data-step="4">
       <h2>Was sind eure Lieblingsgerichte?</h2>
       <p class="hint">Diese sollen regelmäßig im Wochenplan auftauchen.</p>
@@ -68,7 +64,6 @@
       </div>
     </div>
 
-    <!-- Step 5: Cooking time -->
     <div class="wizard-step hidden" data-step="5">
       <h2>Wie lange wollt ihr maximal kochen?</h2>
       <div class="option-group" id="time-options">
@@ -79,7 +74,6 @@
       </div>
     </div>
 
-    <!-- Step 6: Budget -->
     <div class="wizard-step hidden" data-step="6">
       <h2>Wie wichtig ist euch das Budget?</h2>
       <div class="option-group" id="budget-options">
@@ -110,7 +104,6 @@
         <span id="settings-persons-display">2</span>
         <button type="button" onclick="adjustSettingsPersons(1)">+</button>
       </div>
-
       <label>Ernährungsform</label>
       <div class="chip-group" id="settings-diet-chips">
         <button type="button" class="chip" data-value="Standard">Standard</button>
@@ -121,7 +114,6 @@
         <button type="button" class="chip" data-value="Glutenfrei">Glutenfrei</button>
         <button type="button" class="chip" data-value="Laktosefrei">Laktosefrei</button>
       </div>
-
       <label>Nicht gemochte Lebensmittel</label>
       <div class="tag-input-wrap">
         <div id="settings-disliked-tags" class="tag-list"></div>
@@ -130,7 +122,6 @@
           <button type="button" onclick="addTag('settings-disliked')">+</button>
         </div>
       </div>
-
       <label>Lieblingsgerichte</label>
       <div class="tag-input-wrap">
         <div id="settings-favorite-tags" class="tag-list"></div>
@@ -139,7 +130,6 @@
           <button type="button" onclick="addTag('settings-favorite')">+</button>
         </div>
       </div>
-
       <label>Maximale Kochzeit</label>
       <div class="option-group" id="settings-time-options">
         <button type="button" class="option-btn" data-value="10">10 Min</button>
@@ -147,7 +137,6 @@
         <button type="button" class="option-btn active" data-value="30">30 Min</button>
         <button type="button" class="option-btn" data-value="60">60+ Min</button>
       </div>
-
       <label>Budget</label>
       <div class="option-group" id="settings-budget-options">
         <button type="button" class="option-btn" data-value="günstig">Günstig</button>
@@ -170,7 +159,7 @@
     </div>
     <div class="modal-body">
       <p id="swap-meal-name" class="swap-meal-name"></p>
-      <p>Warum möchtest du dieses Gericht tauschen?</p>
+      <p class="hint">Warum möchtest du dieses Gericht tauschen?</p>
       <div class="option-group vertical" id="swap-reasons">
         <button class="option-btn" data-value="mag_ich_nicht">Mag ich nicht</button>
         <button class="option-btn" data-value="zu_teuer">Zu teuer</button>
@@ -185,43 +174,79 @@
   </div>
 </div>
 
+<!-- ── Cooking Mode ─────────────────────────────────────────── -->
+<div id="cooking-mode" class="overlay hidden cooking-overlay">
+  <div class="cooking-container">
+    <div class="cooking-header">
+      <div>
+        <p class="cooking-recipe-label" id="cooking-recipe-label"></p>
+        <div class="cooking-dots-row" id="cooking-dots"></div>
+      </div>
+      <button class="btn-icon cooking-close" onclick="closeCooking()">✕</button>
+    </div>
+
+    <div class="cooking-body">
+      <div class="cooking-step-number" id="cooking-step-num">Schritt 1 / 5</div>
+      <p class="cooking-step-text" id="cooking-step-text"></p>
+    </div>
+
+    <div id="cooking-timer-section" class="cooking-timer hidden">
+      <div class="timer-ring">
+        <svg viewBox="0 0 100 100">
+          <circle class="timer-track" cx="50" cy="50" r="44"/>
+          <circle class="timer-progress" id="timer-circle" cx="50" cy="50" r="44"/>
+        </svg>
+        <span class="timer-digits" id="timer-digits">0:00</span>
+      </div>
+      <button id="timer-btn" class="btn btn-primary" onclick="toggleCookingTimer()">▶ Timer starten</button>
+    </div>
+
+    <div class="cooking-nav">
+      <button class="btn btn-ghost" id="cooking-prev" onclick="cookingPrev()">← Zurück</button>
+      <button class="btn btn-primary" id="cooking-next" onclick="cookingNext()">Weiter →</button>
+    </div>
+  </div>
+</div>
+
 <!-- ── Main App ─────────────────────────────────────────────── -->
 <div id="app">
   <header class="app-header">
-    <h1>🍽 Rezeptplaner</h1>
+    <div class="header-left">
+      <span class="header-icon">🍽</span>
+      <h1>Rezeptplaner</h1>
+    </div>
     <button class="btn-icon" onclick="openSettings()" title="Einstellungen">⚙</button>
   </header>
 
   <nav class="tabs">
-    <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
-    <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">Wochenplan</button>
-    <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">Einkaufsliste</button>
+    <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">💬 Chat</button>
+    <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">📅 Wochenplan</button>
+    <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">🛒 Einkaufsliste</button>
   </nav>
 
-  <!-- Chat Tab -->
   <section id="tab-chat" class="tab-content active">
     <div id="chat-messages"></div>
     <div class="chat-input-bar">
-      <input type="text" id="chat-input" placeholder="Schreib etwas… z.B. „Gib mir Rezepte für diese Woche"" onkeydown="chatKeydown(event)">
-      <button class="btn btn-primary" id="btn-send" onclick="sendChat()">Senden</button>
+      <input type="text" id="chat-input" placeholder="z.B. „Gib mir Rezepte für diese Woche"" onkeydown="chatKeydown(event)">
+      <button class="btn btn-primary" id="btn-send" onclick="sendChat()">↑</button>
     </div>
   </section>
 
-  <!-- Plan Tab -->
   <section id="tab-plan" class="tab-content">
     <div id="plan-content">
       <div class="empty-state">
-        <p>Noch kein Wochenplan vorhanden.</p>
+        <div class="empty-icon">📅</div>
+        <p>Noch kein Wochenplan</p>
         <p class="hint">Geh in den Chat und frag nach Rezepten!</p>
       </div>
     </div>
   </section>
 
-  <!-- Shopping Tab -->
   <section id="tab-shopping" class="tab-content">
     <div id="shopping-content">
       <div class="empty-state">
-        <p>Noch keine Einkaufsliste.</p>
+        <div class="empty-icon">🛒</div>
+        <p>Noch keine Einkaufsliste</p>
         <p class="hint">Bestätige zuerst deinen Wochenplan.</p>
       </div>
     </div>
