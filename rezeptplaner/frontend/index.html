@@ -1,12 +1,233 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rezeptplaner</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rezeptplaner</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>Rezeptplaner</h1>
-    <p>Wird geladen…</p>
+
+<!-- ── Wizard Overlay ───────────────────────────────────────── -->
+<div id="wizard" class="overlay hidden">
+  <div class="wizard-card">
+    <div class="wizard-progress">
+      <span id="wizard-step-label">Schritt 1 von 6</span>
+      <div class="progress-bar"><div id="wizard-bar"></div></div>
+    </div>
+
+    <!-- Step 1: Persons -->
+    <div class="wizard-step" data-step="1">
+      <h2>Für wie viele Personen kochst du?</h2>
+      <div class="number-control">
+        <button type="button" onclick="adjustPersons(-1)">−</button>
+        <span id="persons-display">2</span>
+        <button type="button" onclick="adjustPersons(1)">+</button>
+      </div>
+      <p class="hint">Portionsgrößen werden entsprechend angepasst.</p>
+    </div>
+
+    <!-- Step 2: Diet -->
+    <div class="wizard-step hidden" data-step="2">
+      <h2>Welche Ernährungsform passt zu euch?</h2>
+      <p class="hint">Mehrere Optionen möglich.</p>
+      <div class="chip-group" id="diet-chips">
+        <button type="button" class="chip" data-value="Standard">Standard</button>
+        <button type="button" class="chip" data-value="Vegetarisch">Vegetarisch</button>
+        <button type="button" class="chip" data-value="Vegan">Vegan</button>
+        <button type="button" class="chip" data-value="High Protein">High Protein</button>
+        <button type="button" class="chip" data-value="Low Carb">Low Carb</button>
+        <button type="button" class="chip" data-value="Glutenfrei">Glutenfrei</button>
+        <button type="button" class="chip" data-value="Laktosefrei">Laktosefrei</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Dislikes -->
+    <div class="wizard-step hidden" data-step="3">
+      <h2>Was esst ihr gar nicht?</h2>
+      <p class="hint">Zutaten oder Gerichte die komplett ausgeschlossen werden sollen.</p>
+      <div class="tag-input-wrap">
+        <div id="disliked-tags" class="tag-list"></div>
+        <div class="tag-input-row">
+          <input type="text" id="disliked-input" placeholder="z.B. Rosenkohl, Pilze…" onkeydown="tagKeydown(event,'disliked')">
+          <button type="button" onclick="addTag('disliked')">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Favorites -->
+    <div class="wizard-step hidden" data-step="4">
+      <h2>Was sind eure Lieblingsgerichte?</h2>
+      <p class="hint">Diese sollen regelmäßig im Wochenplan auftauchen.</p>
+      <div class="tag-input-wrap">
+        <div id="favorite-tags" class="tag-list"></div>
+        <div class="tag-input-row">
+          <input type="text" id="favorite-input" placeholder="z.B. Chicken Wings, Lasagne…" onkeydown="tagKeydown(event,'favorite')">
+          <button type="button" onclick="addTag('favorite')">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 5: Cooking time -->
+    <div class="wizard-step hidden" data-step="5">
+      <h2>Wie lange wollt ihr maximal kochen?</h2>
+      <div class="option-group" id="time-options">
+        <button type="button" class="option-btn" data-value="10">10 Min</button>
+        <button type="button" class="option-btn" data-value="20">20 Min</button>
+        <button type="button" class="option-btn active" data-value="30">30 Min</button>
+        <button type="button" class="option-btn" data-value="60">60+ Min</button>
+      </div>
+    </div>
+
+    <!-- Step 6: Budget -->
+    <div class="wizard-step hidden" data-step="6">
+      <h2>Wie wichtig ist euch das Budget?</h2>
+      <div class="option-group" id="budget-options">
+        <button type="button" class="option-btn" data-value="günstig">Günstig</button>
+        <button type="button" class="option-btn active" data-value="mittel">Mittel</button>
+        <button type="button" class="option-btn" data-value="egal">Egal</button>
+      </div>
+    </div>
+
+    <div class="wizard-nav">
+      <button id="wizard-back" class="btn btn-ghost" onclick="wizardBack()" style="visibility:hidden">Zurück</button>
+      <button id="wizard-next" class="btn btn-primary" onclick="wizardNext()">Weiter</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings Modal ───────────────────────────────────────── -->
+<div id="settings-modal" class="overlay hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Einstellungen</h2>
+      <button class="btn-icon" onclick="closeSettings()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Personen</label>
+      <div class="number-control small">
+        <button type="button" onclick="adjustSettingsPersons(-1)">−</button>
+        <span id="settings-persons-display">2</span>
+        <button type="button" onclick="adjustSettingsPersons(1)">+</button>
+      </div>
+
+      <label>Ernährungsform</label>
+      <div class="chip-group" id="settings-diet-chips">
+        <button type="button" class="chip" data-value="Standard">Standard</button>
+        <button type="button" class="chip" data-value="Vegetarisch">Vegetarisch</button>
+        <button type="button" class="chip" data-value="Vegan">Vegan</button>
+        <button type="button" class="chip" data-value="High Protein">High Protein</button>
+        <button type="button" class="chip" data-value="Low Carb">Low Carb</button>
+        <button type="button" class="chip" data-value="Glutenfrei">Glutenfrei</button>
+        <button type="button" class="chip" data-value="Laktosefrei">Laktosefrei</button>
+      </div>
+
+      <label>Nicht gemochte Lebensmittel</label>
+      <div class="tag-input-wrap">
+        <div id="settings-disliked-tags" class="tag-list"></div>
+        <div class="tag-input-row">
+          <input type="text" id="settings-disliked-input" placeholder="Lebensmittel hinzufügen…" onkeydown="tagKeydown(event,'settings-disliked')">
+          <button type="button" onclick="addTag('settings-disliked')">+</button>
+        </div>
+      </div>
+
+      <label>Lieblingsgerichte</label>
+      <div class="tag-input-wrap">
+        <div id="settings-favorite-tags" class="tag-list"></div>
+        <div class="tag-input-row">
+          <input type="text" id="settings-favorite-input" placeholder="Gericht hinzufügen…" onkeydown="tagKeydown(event,'settings-favorite')">
+          <button type="button" onclick="addTag('settings-favorite')">+</button>
+        </div>
+      </div>
+
+      <label>Maximale Kochzeit</label>
+      <div class="option-group" id="settings-time-options">
+        <button type="button" class="option-btn" data-value="10">10 Min</button>
+        <button type="button" class="option-btn" data-value="20">20 Min</button>
+        <button type="button" class="option-btn active" data-value="30">30 Min</button>
+        <button type="button" class="option-btn" data-value="60">60+ Min</button>
+      </div>
+
+      <label>Budget</label>
+      <div class="option-group" id="settings-budget-options">
+        <button type="button" class="option-btn" data-value="günstig">Günstig</button>
+        <button type="button" class="option-btn active" data-value="mittel">Mittel</button>
+        <button type="button" class="option-btn" data-value="egal">Egal</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="saveSettings()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Swap Modal ───────────────────────────────────────────── -->
+<div id="swap-modal" class="overlay hidden">
+  <div class="modal-card small">
+    <div class="modal-header">
+      <h2>Rezept tauschen</h2>
+      <button class="btn-icon" onclick="closeSwapModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="swap-meal-name" class="swap-meal-name"></p>
+      <p>Warum möchtest du dieses Gericht tauschen?</p>
+      <div class="option-group vertical" id="swap-reasons">
+        <button class="option-btn" data-value="mag_ich_nicht">Mag ich nicht</button>
+        <button class="option-btn" data-value="zu_teuer">Zu teuer</button>
+        <button class="option-btn" data-value="zu_aufwendig">Zu aufwendig</button>
+        <button class="option-btn" data-value="schon_gegessen">Letzte Woche schon gegessen</button>
+        <button class="option-btn" data-value="sonstiges">Sonstiger Grund</button>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button id="swap-confirm-btn" class="btn btn-primary" onclick="confirmSwap()" disabled>Tauschen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main App ─────────────────────────────────────────────── -->
+<div id="app">
+  <header class="app-header">
+    <h1>🍽 Rezeptplaner</h1>
+    <button class="btn-icon" onclick="openSettings()" title="Einstellungen">⚙</button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">Chat</button>
+    <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">Wochenplan</button>
+    <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">Einkaufsliste</button>
+  </nav>
+
+  <!-- Chat Tab -->
+  <section id="tab-chat" class="tab-content active">
+    <div id="chat-messages"></div>
+    <div class="chat-input-bar">
+      <input type="text" id="chat-input" placeholder="Schreib etwas… z.B. „Gib mir Rezepte für diese Woche"" onkeydown="chatKeydown(event)">
+      <button class="btn btn-primary" id="btn-send" onclick="sendChat()">Senden</button>
+    </div>
+  </section>
+
+  <!-- Plan Tab -->
+  <section id="tab-plan" class="tab-content">
+    <div id="plan-content">
+      <div class="empty-state">
+        <p>Noch kein Wochenplan vorhanden.</p>
+        <p class="hint">Geh in den Chat und frag nach Rezepten!</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Shopping Tab -->
+  <section id="tab-shopping" class="tab-content">
+    <div id="shopping-content">
+      <div class="empty-state">
+        <p>Noch keine Einkaufsliste.</p>
+        <p class="hint">Bestätige zuerst deinen Wochenplan.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="app.js"></script>
 </body>
 </html>
