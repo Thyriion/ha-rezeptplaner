@@ -143,6 +143,7 @@ Regeln:
 - "category" bei Zutaten: {cat_list}
 - Beachte die Ernährungsform und die Präferenzen aus dem System-Prompt
 - Alle Texte auf Deutsch
+- Der "name" darf KEINE Klammern, Ersatz-Hinweise oder Bezüge auf das Originalgericht enthalten — nur der saubere Rezeptname
 """
 
     def chat(self, message: str) -> str:

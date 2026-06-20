@@ -8,7 +8,7 @@ import { loadAllPlans, loadRatings, updatePlanNav, navigatePlan, renderPlan,
          rateMeal } from './plan.js';
 import { openCooking, closeCooking, cookingPrev, cookingNext,
          toggleCookingTimer } from './cooking.js';
-import { loadShopping, toggleCheck, pushToHA } from './shopping.js';
+import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
 import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          appendMsg, openAddToPlanModal, closeAddToPlanModal,
          confirmAddToPlan, checkAddToPlanReady } from './chat.js';
@@ -64,7 +64,7 @@ Object.assign(window, {
   // cooking
   openCooking, closeCooking, cookingPrev, cookingNext, toggleCookingTimer,
   // shopping
-  toggleCheck, pushToHA,
+  toggleCheck, pushToHA, navigateShopping,
   // chat
   sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
   openAddToPlanModal, closeAddToPlanModal, confirmAddToPlan,
