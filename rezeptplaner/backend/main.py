@@ -95,7 +95,7 @@ async def chat(req: ChatRequest):
         reply = (
             f"Dein Wochenplan für die komplette Woche steht! "
             f"Highlights: {highlights} – und 6 weitere Gerichte. "
-            f"Im Tab „Wochenplan" kannst du alles einsehen, Rezepte aufklappen und einzelne Mahlzeiten tauschen."
+            f'Im Tab "Wochenplan" kannst du alles einsehen, Rezepte aufklappen und einzelne Mahlzeiten tauschen.'
         )
 
     return ChatResponse(reply=reply, plan=new_plan)
