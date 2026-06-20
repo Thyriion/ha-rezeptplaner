@@ -28,6 +28,8 @@ from .models import (
 )
 from .recipes import chat as ai_chat
 from .recipes import generate_replacement, generate_week_plan
+from .shopping import build_shopping_list
+from .shopping import push_to_ha as ha_push
 
 
 @asynccontextmanager
@@ -138,14 +140,13 @@ async def swap_meal(req: SwapRequest):
 
 @app.get("/api/shopping-list", response_model=ShoppingList)
 async def get_shopping_list():
-    # Implemented in Issue #6
-    raise HTTPException(status_code=501, detail="Noch nicht implementiert")
+    return await build_shopping_list()
 
 
 @app.post("/api/shopping-list/push-to-ha")
-async def push_to_ha():
-    # Implemented in Issue #7
-    raise HTTPException(status_code=501, detail="Noch nicht implementiert")
+async def push_shopping_list_to_ha():
+    shopping_list = await build_shopping_list()
+    return await ha_push(shopping_list)
 
 
 # --- Frontend (muss zuletzt stehen) ---
