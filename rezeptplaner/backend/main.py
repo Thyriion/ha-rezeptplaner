@@ -2,17 +2,20 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import load_options
+from .ai_client import test_connection as ai_test_connection
 from .database import (
     confirm_plan,
+    create_plan,
     get_current_plan,
+    get_recent_swaps,
     get_settings,
     init_db,
     record_swap,
+    save_meals,
     save_settings,
+    update_meal,
 )
 from .models import (
     ChatRequest,
@@ -23,6 +26,8 @@ from .models import (
     SwapRequest,
     WeekPlan,
 )
+from .recipes import chat as ai_chat
+from .recipes import generate_replacement, generate_week_plan
 
 
 @asynccontextmanager
@@ -47,9 +52,7 @@ async def health():
 @app.get("/api/settings", response_model=Settings)
 async def read_settings():
     data = await get_settings()
-    if not data:
-        return Settings()
-    return Settings(**data)
+    return Settings(**data) if data else Settings()
 
 
 @app.post("/api/settings", response_model=Settings)
@@ -61,17 +64,31 @@ async def write_settings(settings: Settings):
 # --- AI Provider Test ---
 
 @app.post("/api/test-connection", response_model=ConnectionTestResponse)
-async def test_connection():
-    # Implemented in Issue #4
-    return ConnectionTestResponse(success=False, message="Noch nicht implementiert")
+async def test_connection_endpoint():
+    success, message = await ai_test_connection()
+    return ConnectionTestResponse(success=success, message=message)
 
 
 # --- Chat ---
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    # Implemented in Issue #5
-    raise HTTPException(status_code=501, detail="Noch nicht implementiert")
+    settings = await get_settings()
+    recent_swaps = await get_recent_swaps()
+    current_plan = await get_current_plan()
+
+    reply, wants_plan = await ai_chat(req.message, settings, current_plan, recent_swaps)
+
+    new_plan: WeekPlan | None = None
+    if wants_plan:
+        new_plan = await generate_week_plan(settings, recent_swaps)
+        plan_id = await create_plan(new_plan.week_start)
+        meal_ids = await save_meals(plan_id, new_plan.meals)
+        for meal, mid in zip(new_plan.meals, meal_ids):
+            meal.id = mid
+        new_plan.id = plan_id
+
+    return ChatResponse(reply=reply, plan=new_plan)
 
 
 # --- Week Plan ---
@@ -92,9 +109,29 @@ async def confirm_current_plan():
 
 @app.post("/api/plan/swap")
 async def swap_meal(req: SwapRequest):
-    # AI call implemented in Issue #5
+    plan = await get_current_plan()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Kein aktiver Wochenplan")
+
+    meal = next((m for m in plan.meals if m.id == req.meal_id), None)
+    if not meal:
+        raise HTTPException(status_code=404, detail="Mahlzeit nicht gefunden")
+
+    settings = await get_settings()
+    recent_swaps = await get_recent_swaps()
+
     await record_swap(req.meal_id, req.reason)
-    raise HTTPException(status_code=501, detail="Noch nicht implementiert")
+    new_recipe = await generate_replacement(
+        old_recipe_name=meal.recipe.name,
+        reason=req.reason,
+        day=meal.day,
+        meal_type=meal.meal_type,
+        settings=settings,
+        recent_swaps=recent_swaps,
+    )
+    await update_meal(req.meal_id, new_recipe)
+    meal.recipe = new_recipe
+    return meal
 
 
 # --- Shopping List ---
