@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from .database import (
     add_meal_to_plan,
     confirm_plan as db_confirm_plan,
@@ -5,6 +7,7 @@ from .database import (
     delete_plan_by_id,
     get_all_plan_metas,
     get_current_plan,
+    get_meal_by_id,
     get_plan_by_id,
     get_ratings,
     get_recent_recipe_names,
@@ -87,6 +90,16 @@ class PlanService:
     async def _generate_and_save_plan(self) -> tuple[str, WeekPlan]:
         settings, recent_swaps, ratings, recent_names = await self._context()
         new_plan = await self._planner.generate_plan(settings, recent_swaps, ratings, recent_names)
+
+        today = date.today()
+        this_monday = today - timedelta(days=today.weekday())
+        existing = await get_all_plan_metas()
+        if existing:
+            latest = max(date.fromisoformat(m["week_start"]) for m in existing)
+            new_plan.week_start = max(latest + timedelta(weeks=1), this_monday).isoformat()
+        else:
+            new_plan.week_start = this_monday.isoformat()
+
         plan_id = await create_plan(new_plan.week_start)
         meal_ids = await save_meals(plan_id, new_plan.meals)
         for meal, mid in zip(new_plan.meals, meal_ids):
@@ -105,10 +118,7 @@ class PlanService:
         return await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
 
     async def swap_meal(self, meal_id: int, reason: str) -> Meal:
-        plan = await get_current_plan()
-        if not plan:
-            raise LookupError("Kein aktiver Wochenplan")
-        meal = next((m for m in plan.meals if m.id == meal_id), None)
+        meal = await get_meal_by_id(meal_id)
         if not meal:
             raise LookupError("Mahlzeit nicht gefunden")
         settings, recent_swaps, ratings, _ = await self._context()

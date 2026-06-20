@@ -862,7 +862,7 @@ body {
 .chat-quick-actions {
   display: flex;
   gap: 8px;
-  padding: 8px 14px 0;
+  padding: 8px 14px;
   background: var(--surface);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
@@ -888,8 +888,10 @@ body {
 .rating-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 10px 0 4px;
+  gap: 6px;
+  padding: 6px 14px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
   flex-wrap: wrap;
 }
 .stars {

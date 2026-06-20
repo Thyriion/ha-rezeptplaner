@@ -94,16 +94,15 @@ export function renderMealCard(meal, isConfirmed) {
       </div>
       <span class="expand-icon">▾</span>
     </div>
+    <div class="rating-row" onclick="event.stopPropagation()">
+      ${stars}
+    </div>
     <div class="recipe-detail">
       <div class="nutrition-row">
         <div class="nut-item"><span class="nut-value">${n.calories}</span><span class="nut-label">kcal</span></div>
         <div class="nut-item"><span class="nut-value">${n.protein_g}g</span><span class="nut-label">Protein</span></div>
         <div class="nut-item"><span class="nut-value">${n.carbs_g}g</span><span class="nut-label">Kohlenhydrate</span></div>
         <div class="nut-item"><span class="nut-value">${n.fat_g}g</span><span class="nut-label">Fett</span></div>
-      </div>
-      <div class="rating-row">
-        <span class="section-label" style="margin:0">Bewertung</span>
-        ${stars}
       </div>
       <p class="section-label">Zutaten</p>
       <ul class="ingredients-list">${r.ingredients.map(i => `<li><span>${i.name}</span><span class="ing-amount">${amt(i)}</span></li>`).join('')}</ul>

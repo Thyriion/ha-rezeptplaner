@@ -175,6 +175,22 @@ async def confirm_plan(plan_id: int) -> None:
         await db.commit()
 
 
+async def get_meal_by_id(meal_id: int) -> Meal | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, day, meal_type, recipe_json, confirmed FROM meals WHERE id = ?",
+            (meal_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return Meal(
+        id=row[0], day=row[1], meal_type=row[2],
+        recipe=Recipe.model_validate_json(row[3]),
+        confirmed=bool(row[4]),
+    )
+
+
 async def update_meal(meal_id: int, recipe: Recipe) -> None:
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
