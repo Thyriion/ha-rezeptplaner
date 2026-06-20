@@ -11,6 +11,8 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:food-fork-drink
 panel_title: Rezeptplaner
+map:
+  - data
 options:
   ai_base_url: "https://api.mistral.ai/v1"
   ai_model: "mistral-small-latest"
