@@ -4,8 +4,12 @@ import { apiGet } from './api.js';
 import { state } from './state.js';
 import { loadAllPlans, loadRatings, updatePlanNav, navigatePlan, renderPlan,
          toggleMeal, confirmPlan, deletePlan,
-         openSwapModal, closeSwapModal, confirmSwap,
+         openSwapModal, closeSwapModal, confirmSwap, selectSwapMode,
+         selectSwapRecipe, swapGoBack,
          rateMeal } from './plan.js';
+import { loadUserRecipes, renderUserRecipes, toggleUserRecipe,
+         openRecipeForm, closeRecipeForm, saveUserRecipe, deleteUserRecipeById,
+         addIngredientRow, addStepRow } from './myrecipes.js';
 import { openCooking, closeCooking, cookingPrev, cookingNext,
          toggleCookingTimer } from './cooking.js';
 import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
@@ -46,7 +50,7 @@ async function init() {
     if (!s || s.persons === undefined) { showWizard(); return; }
     state.settings = s;
     document.getElementById('app').classList.remove('hidden');
-    await Promise.all([loadAllPlans(), loadRatings()]);
+    await Promise.all([loadAllPlans(), loadRatings(), loadUserRecipes()]);
   } catch {
     document.getElementById('app').classList.remove('hidden');
     appendMsg('assistant', 'Fehler beim Laden. Bitte prüfe ob das Backend läuft.');
@@ -60,7 +64,8 @@ Object.assign(window, {
   switchTab,
   // plan
   navigatePlan, toggleMeal, confirmPlan, deletePlan,
-  openSwapModal, closeSwapModal, confirmSwap, rateMeal,
+  openSwapModal, closeSwapModal, confirmSwap, selectSwapMode,
+  selectSwapRecipe, swapGoBack, rateMeal,
   // cooking
   openCooking, closeCooking, cookingPrev, cookingNext, toggleCookingTimer,
   // shopping
@@ -72,13 +77,16 @@ Object.assign(window, {
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,
   addTag, removeTag, tagKeydown,
+  // my recipes
+  toggleUserRecipe, openRecipeForm, closeRecipeForm,
+  saveUserRecipe, deleteUserRecipeById, addIngredientRow, addStepRow,
 });
 
 // ── DOM Wiring ────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
   // Single-select option groups
-  ['time-options','budget-options','settings-time-options','settings-budget-options'].forEach(id => {
+  ['time-options','budget-options','settings-time-options','settings-budget-options','spicy-options','settings-spicy-options'].forEach(id => {
     document.getElementById(id)?.querySelectorAll('.option-btn').forEach(btn =>
       btn.addEventListener('click', () => {
         btn.closest('.option-group').querySelectorAll('.option-btn').forEach(b => b.classList.remove('active'));

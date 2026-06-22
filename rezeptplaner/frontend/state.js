@@ -9,6 +9,8 @@ export const state = {
   swapMealId: null,
   swapMealName: null,
   swapReason: null,
+  swapMode: null,
+  swapRecipeId: null,
   pendingSingleRecipe: null,
   addDay: null,
   addMealType: null,
@@ -16,7 +18,9 @@ export const state = {
   wizardData: {
     persons: 2, diet_types: [], disliked_foods: [],
     favorite_foods: [], max_cooking_time: 30, budget: 'mittel',
+    likes_spicy: false,
   },
+  userRecipes: [],
 };
 
 export const cooking = {
@@ -35,6 +39,10 @@ export const DAY_LABELS = {
 };
 export const MEAL_LABELS = { lunch:'Mittagessen', dinner:'Abendessen' };
 export const DAY_ORDER   = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+export const CATEGORIES  = [
+  'Gemüse & Obst', 'Fleisch & Fisch', 'Milchprodukte & Eier',
+  'Getreide & Backwaren', 'Konserven & Trockenwaren', 'Gewürze & Öle', 'Sonstiges',
+];
 export const CAT_ICONS   = {
   'Gemüse & Obst':'🥦','Fleisch & Fisch':'🥩','Milchprodukte & Eier':'🥛',
   'Getreide & Backwaren':'🌾','Konserven & Trockenwaren':'🥫','Gewürze & Öle':'🫙','Sonstiges':'🛒',

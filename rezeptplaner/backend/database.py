@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS ratings (
     score       INTEGER NOT NULL DEFAULT 5,
     updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS user_recipes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipe_json TEXT    NOT NULL,
+    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _MIGRATIONS = [
@@ -270,6 +276,49 @@ async def get_ratings() -> dict[str, int]:
 
 
 # --- Recent recipe names for diversity ---
+
+# --- User Recipes ---
+
+async def get_user_recipes() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, recipe_json FROM user_recipes ORDER BY created_at DESC"
+        ) as cur:
+            rows = await cur.fetchall()
+    return [{"id": r[0], "recipe_json": r[1]} for r in rows]
+
+
+async def get_user_recipe_by_id(recipe_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id, recipe_json FROM user_recipes WHERE id = ?", (recipe_id,)
+        ) as cur:
+            row = await cur.fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "recipe_json": row[1]}
+
+
+async def save_user_recipe(recipe_json: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cur = await db.execute(
+            "INSERT INTO user_recipes (recipe_json) VALUES (?)", (recipe_json,)
+        )
+        await db.commit()
+        return cur.lastrowid
+
+
+async def delete_user_recipe(recipe_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM user_recipes WHERE id = ?", (recipe_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await db.execute("DELETE FROM user_recipes WHERE id = ?", (recipe_id,))
+        await db.commit()
+    return True
+
 
 async def get_recent_recipe_names(limit: int = 30) -> list[str]:
     async with aiosqlite.connect(DB_PATH) as db:

@@ -7,6 +7,11 @@ from fastapi.staticfiles import StaticFiles
 from .ai_client import test_connection as ai_test_connection
 from .database import init_db
 from .ha_client import NoopAdapter, SupervisorAdapter
+from .database import (
+    delete_user_recipe,
+    get_user_recipes,
+    save_user_recipe,
+)
 from .models import (
     AddRecipeRequest,
     ChatRequest,
@@ -15,9 +20,12 @@ from .models import (
     Meal,
     PlanMeta,
     RatingRequest,
+    Recipe,
     Settings,
     ShoppingList,
     SwapRequest,
+    SwapWithRecipeRequest,
+    UserRecipe,
     WeekPlan,
 )
 from .recipes import PlannerAI
@@ -161,10 +169,43 @@ async def get_shopping_list(plan_id: int | None = None):
 async def push_shopping_list_to_ha(plan_id: int | None = None):
     shopping_list = await build_shopping_list(plan_id)
     token = os.environ.get("SUPERVISOR_TOKEN", "")
-    client = SupervisorAdapter(token) if token else NoopAdapter()
     if not token:
         return {"ok": False, "error": "SUPERVISOR_TOKEN nicht verfügbar — ist 'auth_api: true' in der Add-on Konfiguration gesetzt?"}
-    return await push_items(shopping_list, client)
+    result = await push_items(shopping_list, SupervisorAdapter(token))
+    if not result["ok"] and result.get("failed", 0) > 0:
+        result["error"] = f"{result['failed']} Artikel konnten nicht hinzugefügt werden. Prüfe die Logs."
+    return result
+
+
+# --- User Recipes ---
+
+@app.get("/api/user-recipes", response_model=list[UserRecipe])
+async def list_user_recipes():
+    rows = await get_user_recipes()
+    return [UserRecipe(id=r["id"], recipe=Recipe.model_validate_json(r["recipe_json"])) for r in rows]
+
+
+@app.post("/api/user-recipes", response_model=UserRecipe)
+async def create_user_recipe(recipe: Recipe):
+    new_id = await save_user_recipe(recipe.model_dump_json())
+    return UserRecipe(id=new_id, recipe=recipe)
+
+
+@app.delete("/api/user-recipes/{recipe_id}")
+async def remove_user_recipe(recipe_id: int):
+    if not await delete_user_recipe(recipe_id):
+        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    return {"ok": True}
+
+
+# --- Swap with user recipe ---
+
+@app.post("/api/plan/swap-with-recipe", response_model=Meal)
+async def swap_with_recipe(req: SwapWithRecipeRequest):
+    try:
+        return await _service.swap_meal_with_recipe(req.meal_id, req.recipe_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 # --- Frontend ---

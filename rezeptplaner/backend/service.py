@@ -1,5 +1,7 @@
 from datetime import date, timedelta
 
+import json
+
 from .database import (
     add_meal_to_plan,
     confirm_plan as db_confirm_plan,
@@ -13,6 +15,7 @@ from .database import (
     get_recent_recipe_names,
     get_recent_swaps,
     get_settings,
+    get_user_recipe_by_id,
     record_swap,
     save_meals,
     save_rating,
@@ -116,6 +119,19 @@ class PlanService:
     async def generate_single_recipe(self) -> Recipe:
         settings, recent_swaps, ratings, recent_names = await self._context()
         return await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
+
+    async def swap_meal_with_recipe(self, meal_id: int, recipe_id: int) -> Meal:
+        meal = await get_meal_by_id(meal_id)
+        if not meal:
+            raise LookupError("Mahlzeit nicht gefunden")
+        user_recipe = await get_user_recipe_by_id(recipe_id)
+        if not user_recipe:
+            raise LookupError("Eigenes Rezept nicht gefunden")
+        recipe = Recipe.model_validate_json(user_recipe["recipe_json"])
+        await record_swap(meal_id, meal.recipe.name, "eigenes_rezept")
+        await update_meal(meal_id, recipe)
+        meal.recipe = recipe
+        return meal
 
     async def swap_meal(self, meal_id: int, reason: str) -> Meal:
         meal = await get_meal_by_id(meal_id)

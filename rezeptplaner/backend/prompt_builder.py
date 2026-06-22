@@ -64,6 +64,13 @@ class PromptBuilder:
             f"Maximale Kochzeit pro Mahlzeit: {settings.max_cooking_time} Minuten",
             f"Budget: {settings.budget}",
         ]
+        if settings.likes_spicy:
+            lines.append(
+                "Schärfe-Tipp: Füge bei jedem Rezept als allerletzten Schritt folgenden Hinweis hinzu: "
+                "'Schärfe-Tipp: Wer es schärfer mag, kann Chiliflocken, Sriracha oder frische Chili dazugeben.'"
+            )
+        else:
+            lines.append("Scharf: Nein — bitte keine scharfen Gerichte und keine Schärfe-Hinweise.")
         if recent_swaps:
             lines.append("\nZuletzt abgelehnte Gerichte — bitte nicht wiederholen:")
             for s in recent_swaps[:10]:

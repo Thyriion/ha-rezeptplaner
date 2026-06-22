@@ -16,10 +16,10 @@ export function updateWizardStep(step) {
   document.querySelectorAll('.wizard-step').forEach(el =>
     el.classList.toggle('hidden', parseInt(el.dataset.step) !== step)
   );
-  document.getElementById('wizard-step-label').textContent = `Schritt ${step} von 6`;
-  document.getElementById('wizard-bar').style.width = `${(step / 6) * 100}%`;
+  document.getElementById('wizard-step-label').textContent = `Schritt ${step} von 7`;
+  document.getElementById('wizard-bar').style.width = `${(step / 7) * 100}%`;
   document.getElementById('wizard-back').style.visibility = step > 1 ? 'visible' : 'hidden';
-  document.getElementById('wizard-next').textContent = step === 6 ? 'Fertig' : 'Weiter';
+  document.getElementById('wizard-next').textContent = step === 7 ? 'Fertig' : 'Weiter';
 }
 
 export function wizardBack() {
@@ -28,7 +28,7 @@ export function wizardBack() {
 
 export async function wizardNext() {
   collectWizardStep(state.wizardStep);
-  if (state.wizardStep < 6) { updateWizardStep(state.wizardStep + 1); return; }
+  if (state.wizardStep < 7) { updateWizardStep(state.wizardStep + 1); return; }
   const btn = document.getElementById('wizard-next');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Speichern…';
   try {
@@ -47,6 +47,7 @@ export function collectWizardStep(step) {
   else if (step === 2) state.wizardData.diet_types = [...document.querySelectorAll('#diet-chips .chip.active')].map(c => c.dataset.value);
   else if (step === 5) state.wizardData.max_cooking_time = parseInt(document.querySelector('#time-options .option-btn.active')?.dataset.value || 30);
   else if (step === 6) state.wizardData.budget = document.querySelector('#budget-options .option-btn.active')?.dataset.value || 'mittel';
+  else if (step === 7) state.wizardData.likes_spicy = document.querySelector('#spicy-options .option-btn.active')?.dataset.value === 'true';
 }
 
 export function adjustPersons(d) {
@@ -71,6 +72,9 @@ export function openSettings() {
   document.querySelectorAll('#settings-budget-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === (s.budget || 'mittel'))
   );
+  document.querySelectorAll('#settings-spicy-options .option-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.value === String(s.likes_spicy ?? false))
+  );
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -89,6 +93,7 @@ export async function saveSettings() {
     favorite_foods: getTagValues('settings-favorite'),
     max_cooking_time: parseInt(document.querySelector('#settings-time-options .option-btn.active')?.dataset.value || 30),
     budget: document.querySelector('#settings-budget-options .option-btn.active')?.dataset.value || 'mittel',
+    likes_spicy: document.querySelector('#settings-spicy-options .option-btn.active')?.dataset.value === 'true',
   }).catch(() => null);
   if (saved) { state.settings = saved; closeSettings(); showToast('Einstellungen gespeichert!', 'success'); }
   else showToast('Fehler beim Speichern.', 'error');

@@ -157,22 +157,81 @@ export async function deletePlan(planId) {
 }
 
 export function openSwapModal(mealId, mealName) {
-  state.swapMealId = mealId; state.swapMealName = mealName; state.swapReason = null;
+  state.swapMealId = mealId;
+  state.swapMealName = mealName;
+  state.swapReason = null;
+  state.swapMode = null;
+  state.swapRecipeId = null;
   document.getElementById('swap-meal-name').textContent = mealName;
-  document.querySelectorAll('#swap-reasons .option-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('swap-mode-section').classList.remove('hidden');
+  document.getElementById('swap-ai-section').classList.add('hidden');
+  document.getElementById('swap-recipe-section').classList.add('hidden');
+  document.getElementById('swap-back-btn').style.display = 'none';
   document.getElementById('swap-confirm-btn').disabled = true;
+  document.querySelectorAll('#swap-reasons .option-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('swap-modal').classList.remove('hidden');
 }
 
 export function closeSwapModal() { document.getElementById('swap-modal').classList.add('hidden'); }
 
+export function selectSwapMode(mode) {
+  state.swapMode = mode;
+  document.getElementById('swap-mode-section').classList.add('hidden');
+  document.getElementById('swap-back-btn').style.display = '';
+  if (mode === 'ai') {
+    document.getElementById('swap-ai-section').classList.remove('hidden');
+  } else {
+    document.getElementById('swap-recipe-section').classList.remove('hidden');
+    renderSwapRecipeList();
+  }
+  document.getElementById('swap-confirm-btn').disabled = true;
+}
+
+function renderSwapRecipeList() {
+  const list = document.getElementById('swap-recipe-list');
+  const recipes = state.userRecipes || [];
+  if (!recipes.length) {
+    list.innerHTML = '<p class="hint" style="text-align:center;padding:16px 0">Keine eigenen Rezepte vorhanden.<br>Füge zuerst Rezepte unter "📖 Rezepte" hinzu.</p>';
+    return;
+  }
+  list.innerHTML = `<div class="option-group vertical">${recipes.map(ur =>
+    `<button class="option-btn" onclick="selectSwapRecipe(${ur.id}, this)">${ur.recipe.name}</button>`
+  ).join('')}</div>`;
+}
+
+export function selectSwapRecipe(recipeId, btn) {
+  state.swapRecipeId = recipeId;
+  document.querySelectorAll('#swap-recipe-list .option-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('swap-confirm-btn').disabled = false;
+}
+
+export function swapGoBack() {
+  state.swapMode = null;
+  state.swapReason = null;
+  state.swapRecipeId = null;
+  document.getElementById('swap-mode-section').classList.remove('hidden');
+  document.getElementById('swap-ai-section').classList.add('hidden');
+  document.getElementById('swap-recipe-section').classList.add('hidden');
+  document.getElementById('swap-back-btn').style.display = 'none';
+  document.getElementById('swap-confirm-btn').disabled = true;
+  document.querySelectorAll('#swap-reasons .option-btn').forEach(b => b.classList.remove('active'));
+}
+
 export async function confirmSwap() {
-  if (!state.swapMealId || !state.swapReason) return;
+  if (!state.swapMealId || !state.swapMode) return;
+  if (state.swapMode === 'ai' && !state.swapReason) return;
+  if (state.swapMode === 'recipe' && !state.swapRecipeId) return;
   const btn = document.getElementById('swap-confirm-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Wird getauscht…';
   try {
-    const updated = await apiPost('api/plan/swap', { meal_id: state.swapMealId, reason: state.swapReason });
+    let updated;
+    if (state.swapMode === 'ai') {
+      updated = await apiPost('api/plan/swap', { meal_id: state.swapMealId, reason: state.swapReason });
+    } else {
+      updated = await apiPost('api/plan/swap-with-recipe', { meal_id: state.swapMealId, recipe_id: state.swapRecipeId });
+    }
     if (state.plan) {
       const idx = state.plan.meals.findIndex(m => m.id === state.swapMealId);
       if (idx !== -1) state.plan.meals[idx] = updated;

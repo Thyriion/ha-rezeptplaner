@@ -9,6 +9,7 @@ class Settings(BaseModel):
     favorite_foods: List[str] = []
     max_cooking_time: int = 30
     budget: str = "mittel"
+    likes_spicy: bool = False
 
 
 class Ingredient(BaseModel):
@@ -65,9 +66,19 @@ class ChatResponse(BaseModel):
     single_recipe: Optional[Recipe] = None
 
 
+class UserRecipe(BaseModel):
+    id: Optional[int] = None
+    recipe: Recipe
+
+
 class SwapRequest(BaseModel):
     meal_id: int
     reason: str
+
+
+class SwapWithRecipeRequest(BaseModel):
+    meal_id: int
+    recipe_id: int
 
 
 class AddRecipeRequest(BaseModel):

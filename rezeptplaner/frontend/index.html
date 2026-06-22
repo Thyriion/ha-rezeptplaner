@@ -12,7 +12,7 @@
 <div id="wizard" class="overlay hidden">
   <div class="wizard-card">
     <div class="wizard-progress">
-      <span id="wizard-step-label">Schritt 1 von 6</span>
+      <span id="wizard-step-label">Schritt 1 von 7</span>
       <div class="progress-bar"><div id="wizard-bar"></div></div>
     </div>
 
@@ -83,6 +83,15 @@
       </div>
     </div>
 
+    <div class="wizard-step hidden" data-step="7">
+      <h2>Mögt ihr scharfes Essen?</h2>
+      <p class="hint">Wenn ja, fügt die KI bei jedem Gericht einen Schärfe-Tipp hinzu.</p>
+      <div class="option-group" id="spicy-options">
+        <button type="button" class="option-btn active" data-value="false">Nicht scharf</button>
+        <button type="button" class="option-btn" data-value="true">Ja, scharf!</button>
+      </div>
+    </div>
+
     <div class="wizard-nav">
       <button id="wizard-back" class="btn btn-ghost" onclick="wizardBack()" style="visibility:hidden">Zurück</button>
       <button id="wizard-next" class="btn btn-primary" onclick="wizardNext()">Weiter</button>
@@ -143,6 +152,11 @@
         <button type="button" class="option-btn active" data-value="mittel">Mittel</button>
         <button type="button" class="option-btn" data-value="egal">Egal</button>
       </div>
+      <label>Scharf essen</label>
+      <div class="option-group" id="settings-spicy-options">
+        <button type="button" class="option-btn active" data-value="false">Nicht scharf</button>
+        <button type="button" class="option-btn" data-value="true">Ja, scharf!</button>
+      </div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="saveSettings()">Speichern</button>
@@ -190,17 +204,95 @@
     </div>
     <div class="modal-body">
       <p id="swap-meal-name" class="swap-meal-name"></p>
-      <p class="hint">Warum möchtest du dieses Gericht tauschen?</p>
-      <div class="option-group vertical" id="swap-reasons">
-        <button class="option-btn" data-value="mag_ich_nicht">Mag ich nicht</button>
-        <button class="option-btn" data-value="zu_teuer">Zu teuer</button>
-        <button class="option-btn" data-value="zu_aufwendig">Zu aufwendig</button>
-        <button class="option-btn" data-value="schon_gegessen">Letzte Woche schon gegessen</button>
-        <button class="option-btn" data-value="sonstiges">Sonstiger Grund</button>
+
+      <!-- Schritt 1: Modus wählen -->
+      <div id="swap-mode-section">
+        <p class="hint">Wie möchtest du tauschen?</p>
+        <div class="option-group vertical">
+          <button class="option-btn" onclick="selectSwapMode('ai')">🤖 KI-Vorschlag</button>
+          <button class="option-btn" onclick="selectSwapMode('recipe')">📖 Eigenes Rezept</button>
+        </div>
+      </div>
+
+      <!-- Schritt 2a: KI — Grund auswählen -->
+      <div id="swap-ai-section" class="hidden">
+        <p class="hint">Warum möchtest du dieses Gericht tauschen?</p>
+        <div class="option-group vertical" id="swap-reasons">
+          <button class="option-btn" data-value="mag_ich_nicht">Mag ich nicht</button>
+          <button class="option-btn" data-value="zu_teuer">Zu teuer</button>
+          <button class="option-btn" data-value="zu_aufwendig">Zu aufwendig</button>
+          <button class="option-btn" data-value="schon_gegessen">Letzte Woche schon gegessen</button>
+          <button class="option-btn" data-value="sonstiges">Sonstiger Grund</button>
+        </div>
+      </div>
+
+      <!-- Schritt 2b: Eigenes Rezept wählen -->
+      <div id="swap-recipe-section" class="hidden">
+        <p class="hint">Wähle ein eigenes Rezept:</p>
+        <div id="swap-recipe-list"></div>
       </div>
     </div>
     <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" id="swap-back-btn" onclick="swapGoBack()" style="display:none">← Zurück</button>
       <button id="swap-confirm-btn" class="btn btn-primary" onclick="confirmSwap()" disabled>Tauschen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Recipe Form Modal ────────────────────────────────────── -->
+<div id="recipe-form-modal" class="overlay hidden">
+  <div class="modal-card recipe-form-card">
+    <div class="modal-header">
+      <h2>Rezept hinzufügen</h2>
+      <button class="btn-icon" onclick="closeRecipeForm()">✕</button>
+    </div>
+    <div class="modal-body">
+      <label>Rezeptname</label>
+      <input type="text" id="rf-name" class="text-input" placeholder="z.B. Omas Lasagne">
+
+      <div class="form-row-2">
+        <div>
+          <label>Kochzeit (Min)</label>
+          <input type="number" id="rf-time" class="text-input" value="30" min="1" max="999">
+        </div>
+        <div>
+          <label>Portionen</label>
+          <input type="number" id="rf-servings" class="text-input" value="2" min="1" max="20">
+        </div>
+      </div>
+
+      <label>Zutaten</label>
+      <div id="rf-ingredients-list"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addIngredientRow()">+ Zutat</button>
+
+      <label>Zubereitungsschritte</label>
+      <p class="hint" style="margin-top:-6px">Jeden Schritt einzeln eingeben</p>
+      <div id="rf-steps-list"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:6px" onclick="addStepRow()">+ Schritt</button>
+
+      <label>Nährwerte (pro Portion, optional)</label>
+      <div class="nutrition-form-grid">
+        <div>
+          <label class="sub-label">Kalorien (kcal)</label>
+          <input type="number" id="rf-cal" class="text-input" placeholder="0" min="0">
+        </div>
+        <div>
+          <label class="sub-label">Protein (g)</label>
+          <input type="number" id="rf-protein" class="text-input" placeholder="0" min="0" step="0.1">
+        </div>
+        <div>
+          <label class="sub-label">Kohlenhydrate (g)</label>
+          <input type="number" id="rf-carbs" class="text-input" placeholder="0" min="0" step="0.1">
+        </div>
+        <div>
+          <label class="sub-label">Fett (g)</label>
+          <input type="number" id="rf-fat" class="text-input" placeholder="0" min="0" step="0.1">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="gap:10px">
+      <button class="btn btn-ghost" onclick="closeRecipeForm()">Abbrechen</button>
+      <button class="btn btn-primary" onclick="saveUserRecipe()">Speichern</button>
     </div>
   </div>
 </div>
@@ -251,8 +343,9 @@
 
   <nav class="tabs">
     <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">💬 Chat</button>
-    <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">📅 Wochenplan</button>
-    <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">🛒 Einkaufsliste</button>
+    <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">📅 Plan</button>
+    <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">🛒 Einkauf</button>
+    <button class="tab-btn" data-tab="myrecipes" onclick="switchTab('myrecipes')">📖 Rezepte</button>
   </nav>
 
   <section id="tab-chat" class="tab-content active">
@@ -293,6 +386,19 @@
         <div class="empty-icon">🛒</div>
         <p>Noch keine Einkaufsliste</p>
         <p class="hint">Bestätige zuerst deinen Wochenplan.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-myrecipes" class="tab-content">
+    <div class="myrecipes-toolbar">
+      <button class="btn btn-primary btn-sm" onclick="openRecipeForm()">+ Rezept hinzufügen</button>
+    </div>
+    <div id="myrecipes-content" style="padding:14px">
+      <div class="empty-state">
+        <div class="empty-icon">📖</div>
+        <p>Noch keine eigenen Rezepte</p>
+        <p class="hint">Füge deine Lieblingsrezepte hinzu!</p>
       </div>
     </div>
   </section>

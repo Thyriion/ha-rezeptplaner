@@ -919,3 +919,101 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* ── My Recipes ───────────────────────────────────────────── */
+.myrecipes-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 14px 0;
+  flex-shrink: 0;
+}
+
+/* ── Recipe Form ──────────────────────────────────────────── */
+.recipe-form-card {
+  max-width: 600px;
+  max-height: 88vh;
+}
+
+.text-input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 0.88rem;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  resize: vertical;
+}
+.text-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+.text-input::placeholder { color: var(--text-faint); }
+
+.form-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.ingredient-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 2fr auto;
+  gap: 5px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+.step-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: flex-start;
+}
+
+.step-num {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  background: var(--primary);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 700;
+  margin-top: 8px;
+  flex-shrink: 0;
+}
+
+.nutrition-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.sub-label {
+  display: block;
+  font-size: 0.68rem !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-top: 0 !important;
+  margin-bottom: 4px;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.remove-btn:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
