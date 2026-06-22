@@ -71,6 +71,7 @@ function startTimer() {
     if (cooking.timerRemaining <= 0) {
       stopTimer();
       document.getElementById('timer-btn').textContent = '↺ Neu starten';
+      playTimerSound();
       showToast('Timer abgelaufen!', 'success');
     }
   }, 1000);
@@ -96,6 +97,24 @@ function parseStepTime(text) {
   if (unit.startsWith('st')) return n * 3600;
   if (unit.startsWith('sek') || unit === 's') return n;
   return n * 60;
+}
+
+function playTimerSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    [[880, 0, 0.15], [880, 0.2, 0.15], [1320, 0.4, 0.6]].forEach(([freq, start, dur]) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = freq;
+      osc.type = 'sine';
+      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur);
+    });
+  } catch { /* Audio nicht verfügbar */ }
 }
 
 function updateTimerDisplay() {

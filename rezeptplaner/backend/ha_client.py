@@ -36,9 +36,9 @@ class SupervisorAdapter(HAClient):
             )
             if resp.status_code < 400:
                 return True
-            logger.debug("todo.add_item %s → %s", entity_id, resp.status_code)
+            logger.warning("todo.add_item %s → HTTP %s: %s", entity_id, resp.status_code, resp.text[:200])
         except Exception as e:
-            logger.debug("todo.add_item %s exception: %s", entity_id, e)
+            logger.warning("todo.add_item %s exception: %s", entity_id, e)
         return False
 
     async def _try_shopping_list(self, client: httpx.AsyncClient, label: str) -> bool:
@@ -50,9 +50,9 @@ class SupervisorAdapter(HAClient):
             )
             if resp.status_code < 400:
                 return True
-            logger.debug("shopping_list.add_item → %s", resp.status_code)
+            logger.warning("shopping_list.add_item → HTTP %s: %s", resp.status_code, resp.text[:200])
         except Exception as e:
-            logger.debug("shopping_list.add_item exception: %s", e)
+            logger.warning("shopping_list.add_item exception: %s", e)
         return False
 
     async def add_item(self, label: str) -> bool:
