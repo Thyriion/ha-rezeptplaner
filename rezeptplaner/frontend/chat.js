@@ -24,11 +24,14 @@ export async function quickGeneratePlan() {
   const btn = document.getElementById('btn-gen-plan');
   btn.disabled = true;
   appendMsg('user', 'Wochenplan generieren');
+  const typing = appendMsg('assistant', '', true);
   try {
     const res = await apiPost('api/plan/generate', {});
+    typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
     if (res.plan) await _onNewPlan(res.plan);
   } catch {
+    typing.remove();
     appendMsg('assistant', 'Fehler beim Generieren. Bitte prüfe die KI-Konfiguration.');
   } finally { btn.disabled = false; }
 }
@@ -37,7 +40,7 @@ export async function quickSingleRecipe() {
   const btn = document.getElementById('btn-gen-recipe');
   btn.disabled = true;
   appendMsg('user', 'Einzelnes Rezept vorschlagen');
-  const typing = appendMsg('assistant', '…', true);
+  const typing = appendMsg('assistant', '', true);
   try {
     const recipe = await apiPost('api/recipe/single', {});
     typing.remove();
@@ -69,7 +72,7 @@ function appendSingleRecipeMsg(recipe) {
 }
 
 async function _doChat(body) {
-  const typing = appendMsg('assistant', '…', true);
+  const typing = appendMsg('assistant', '', true);
   const btn = document.getElementById('btn-send');
   const input = document.getElementById('chat-input');
   btn.disabled = true; input.disabled = true;
@@ -98,7 +101,11 @@ export function appendMsg(role, text, isTyping = false, plan = null) {
   const wrap = document.getElementById('chat-messages');
   const el = document.createElement('div');
   el.className = `msg ${role}${isTyping ? ' typing' : ''}`;
-  el.textContent = text;
+  if (isTyping) {
+    el.innerHTML = '<div class="typing-dots"><span></span><span></span><span></span></div>';
+  } else {
+    el.textContent = text;
+  }
   if (plan) {
     const btn = document.createElement('button');
     btn.className = 'msg-plan-link';
