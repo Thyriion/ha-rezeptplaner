@@ -117,18 +117,30 @@ function parseStepTime(text) {
 function playTimerSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    [[880, 0, 0.15], [880, 0.2, 0.15], [1320, 0.4, 0.6]].forEach(([freq, start, dur]) => {
+    function quack(t) {
       const osc = ctx.createOscillator();
+      const filter = ctx.createBiquadFilter();
       const gain = ctx.createGain();
-      osc.connect(gain);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(1200, t);
+      osc.frequency.exponentialRampToValueAtTime(680, t + 0.18);
+      filter.type = 'bandpass';
+      filter.frequency.value = 1000;
+      filter.Q.value = 4;
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.5, t + 0.02);
+      gain.gain.setValueAtTime(0.5, t + 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+      osc.connect(filter);
+      filter.connect(gain);
       gain.connect(ctx.destination);
-      osc.frequency.value = freq;
-      osc.type = 'sine';
-      gain.gain.setValueAtTime(0.4, ctx.currentTime + start);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + dur);
-      osc.start(ctx.currentTime + start);
-      osc.stop(ctx.currentTime + start + dur);
-    });
+      osc.start(t);
+      osc.stop(t + 0.24);
+    }
+    const now = ctx.currentTime;
+    quack(now);
+    quack(now + 0.38);
+    quack(now + 0.72);
   } catch { /* Audio nicht verfügbar */ }
 }
 
