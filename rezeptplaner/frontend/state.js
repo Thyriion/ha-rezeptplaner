@@ -31,6 +31,7 @@ export const cooking = {
   timerRemaining: 0,
   timerInterval: null,
   timerRunning: false,
+  alarmInterval: null,
 };
 
 export const DAY_LABELS = {

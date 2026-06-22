@@ -564,6 +564,15 @@ body {
   color: var(--text);
 }
 
+.alarm-active {
+  background: var(--danger, #e53935) !important;
+  animation: alarm-pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes alarm-pulse {
+  from { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
+  to   { box-shadow: 0 0 0 10px rgba(229,57,53,0); }
+}
+
 .cooking-nav {
   display: flex;
   justify-content: space-between;

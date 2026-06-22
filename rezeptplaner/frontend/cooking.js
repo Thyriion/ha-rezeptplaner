@@ -58,7 +58,15 @@ export function cookingNext() {
 }
 
 export function toggleCookingTimer() {
+  if (cooking.alarmInterval) { stopAlarm(); return; }
   if (cooking.timerRunning) pauseTimer(); else startTimer();
+}
+
+function stopAlarm() {
+  clearInterval(cooking.alarmInterval);
+  cooking.alarmInterval = null;
+  document.getElementById('timer-btn').textContent = '↺ Neu starten';
+  document.getElementById('timer-btn').classList.remove('alarm-active');
 }
 
 function startTimer() {
@@ -70,9 +78,11 @@ function startTimer() {
     updateTimerDisplay();
     if (cooking.timerRemaining <= 0) {
       stopTimer();
-      document.getElementById('timer-btn').textContent = '↺ Neu starten';
+      const btn = document.getElementById('timer-btn');
+      btn.textContent = '🔔 Alarm stoppen';
+      btn.classList.add('alarm-active');
       playTimerSound();
-      showToast('Timer abgelaufen!', 'success');
+      cooking.alarmInterval = setInterval(playTimerSound, 2500);
     }
   }, 1000);
 }
@@ -87,6 +97,11 @@ export function stopTimer() {
   cooking.timerRunning = false;
   clearInterval(cooking.timerInterval);
   cooking.timerInterval = null;
+  if (cooking.alarmInterval) {
+    clearInterval(cooking.alarmInterval);
+    cooking.alarmInterval = null;
+    document.getElementById('timer-btn')?.classList.remove('alarm-active');
+  }
 }
 
 function parseStepTime(text) {
