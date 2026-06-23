@@ -14,6 +14,7 @@ class Settings(BaseModel):
 
 class Ingredient(BaseModel):
     name: str
+    name_en: Optional[str] = None
     amount: float
     unit: str
     category: str

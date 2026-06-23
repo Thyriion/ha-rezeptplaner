@@ -1,7 +1,9 @@
 'use strict';
 
-import { apiGet, apiPost, apiDelete } from './api.js';
+import { apiGet, apiPost, apiPut, apiDelete } from './api.js';
 import { state, CATEGORIES } from './state.js';
+
+let editingId = null;
 import { showToast } from './app.js';
 
 export async function loadUserRecipes() {
@@ -30,6 +32,7 @@ function renderUserRecipeCard(ur) {
         <span class="meal-name">${r.name}</span>
         <span class="meal-time">⏱ ${r.cooking_time_minutes} Min · ${r.servings} Port.</span>
         <div class="meal-actions">
+          <button class="btn-swap" onclick="event.stopPropagation(); editUserRecipeById(${ur.id})">✏ Bearbeiten</button>
           <button class="btn-swap" onclick="event.stopPropagation(); deleteUserRecipeById(${ur.id})">🗑 Löschen</button>
         </div>
         <span class="expand-icon">▾</span>
@@ -54,19 +57,51 @@ export function toggleUserRecipe(id) {
   document.getElementById(`ur-${id}`)?.classList.toggle('open');
 }
 
-export function openRecipeForm() {
-  document.getElementById('rf-name').value = '';
-  document.getElementById('rf-time').value = '30';
-  document.getElementById('rf-servings').value = '2';
+export function openRecipeForm(ur = null) {
+  editingId = ur ? ur.id : null;
+  document.getElementById('recipe-form-title').textContent = ur ? 'Rezept bearbeiten' : 'Rezept hinzufügen';
+  const r = ur?.recipe;
+  document.getElementById('rf-name').value = r?.name ?? '';
+  document.getElementById('rf-time').value = r?.cooking_time_minutes ?? 30;
+  document.getElementById('rf-servings').value = r?.servings ?? 2;
+  document.getElementById('rf-cal').value = r?.nutrition_per_serving?.calories ?? '';
+  document.getElementById('rf-protein').value = r?.nutrition_per_serving?.protein_g ?? '';
+  document.getElementById('rf-carbs').value = r?.nutrition_per_serving?.carbs_g ?? '';
+  document.getElementById('rf-fat').value = r?.nutrition_per_serving?.fat_g ?? '';
+
   document.getElementById('rf-ingredients-list').innerHTML = '';
   document.getElementById('rf-steps-list').innerHTML = '';
-  document.getElementById('rf-cal').value = '';
-  document.getElementById('rf-protein').value = '';
-  document.getElementById('rf-carbs').value = '';
-  document.getElementById('rf-fat').value = '';
-  addIngredientRow();
-  addStepRow();
+
+  if (r?.ingredients?.length) {
+    r.ingredients.forEach(ing => {
+      addIngredientRow();
+      const rows = document.querySelectorAll('#rf-ingredients-list .ingredient-row');
+      const row = rows[rows.length - 1];
+      row.querySelector('.ing-name').value = ing.name;
+      row.querySelector('.ing-amount').value = ing.amount;
+      row.querySelector('.ing-unit').value = ing.unit;
+      row.querySelector('.ing-cat').value = ing.category;
+    });
+  } else {
+    addIngredientRow();
+  }
+
+  if (r?.steps?.length) {
+    r.steps.forEach(step => {
+      addStepRow();
+      const textareas = document.querySelectorAll('#rf-steps-list .step-text');
+      textareas[textareas.length - 1].value = step;
+    });
+  } else {
+    addStepRow();
+  }
+
   document.getElementById('recipe-form-modal').classList.remove('hidden');
+}
+
+export function editUserRecipeById(id) {
+  const ur = state.userRecipes.find(r => r.id === id);
+  if (ur) openRecipeForm(ur);
 }
 
 export function closeRecipeForm() {
@@ -80,7 +115,7 @@ export function addIngredientRow() {
   row.className = 'ingredient-row';
   row.innerHTML = `
     <input type="text" class="text-input ing-name" placeholder="Zutat">
-    <input type="number" class="text-input ing-amount" placeholder="Menge" min="0" step="0.1">
+    <input type="number" class="text-input ing-amount" placeholder="Menge" min="0" step="0.1" onwheel="this.blur()">
     <input type="text" class="text-input ing-unit" placeholder="Einheit">
     <select class="text-input ing-cat">${catOptions}</select>
     <button type="button" class="remove-btn" onclick="this.closest('.ingredient-row').remove()">×</button>
@@ -132,8 +167,13 @@ export async function saveUserRecipe() {
   };
 
   try {
-    const saved = await apiPost('api/user-recipes', recipe);
-    state.userRecipes = [saved, ...(state.userRecipes || [])];
+    if (editingId !== null) {
+      const updated = await apiPut(`api/user-recipes/${editingId}`, recipe);
+      state.userRecipes = state.userRecipes.map(r => r.id === editingId ? updated : r);
+    } else {
+      const saved = await apiPost('api/user-recipes', recipe);
+      state.userRecipes = [saved, ...(state.userRecipes || [])];
+    }
     renderUserRecipes();
     closeRecipeForm();
     showToast('Rezept gespeichert!', 'success');

@@ -308,6 +308,20 @@ async def save_user_recipe(recipe_json: str) -> int:
         return cur.lastrowid
 
 
+async def update_user_recipe(recipe_id: int, recipe_json: str) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT id FROM user_recipes WHERE id = ?", (recipe_id,)
+        ) as cur:
+            if not await cur.fetchone():
+                return False
+        await db.execute(
+            "UPDATE user_recipes SET recipe_json = ? WHERE id = ?", (recipe_json, recipe_id)
+        )
+        await db.commit()
+    return True
+
+
 async def delete_user_recipe(recipe_id: int) -> bool:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(

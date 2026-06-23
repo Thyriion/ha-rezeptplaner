@@ -9,7 +9,7 @@ import { loadAllPlans, loadRatings, updatePlanNav, navigatePlan, renderPlan,
          rateMeal } from './plan.js';
 import { loadUserRecipes, renderUserRecipes, toggleUserRecipe,
          openRecipeForm, closeRecipeForm, saveUserRecipe, deleteUserRecipeById,
-         addIngredientRow, addStepRow } from './myrecipes.js';
+         editUserRecipeById, addIngredientRow, addStepRow } from './myrecipes.js';
 import { openCooking, closeCooking, cookingPrev, cookingNext,
          toggleCookingTimer } from './cooking.js';
 import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
@@ -79,7 +79,7 @@ Object.assign(window, {
   addTag, removeTag, tagKeydown,
   // my recipes
   toggleUserRecipe, openRecipeForm, closeRecipeForm,
-  saveUserRecipe, deleteUserRecipeById, addIngredientRow, addStepRow,
+  saveUserRecipe, deleteUserRecipeById, editUserRecipeById, addIngredientRow, addStepRow,
 });
 
 // ── DOM Wiring ────────────────────────────────────────────────────

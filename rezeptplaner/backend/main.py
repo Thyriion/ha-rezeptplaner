@@ -11,6 +11,7 @@ from .database import (
     delete_user_recipe,
     get_user_recipes,
     save_user_recipe,
+    update_user_recipe,
 )
 from .models import (
     AddRecipeRequest,
@@ -189,6 +190,13 @@ async def list_user_recipes():
 async def create_user_recipe(recipe: Recipe):
     new_id = await save_user_recipe(recipe.model_dump_json())
     return UserRecipe(id=new_id, recipe=recipe)
+
+
+@app.put("/api/user-recipes/{recipe_id}", response_model=UserRecipe)
+async def edit_user_recipe(recipe_id: int, recipe: Recipe):
+    if not await update_user_recipe(recipe_id, recipe.model_dump_json()):
+        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    return UserRecipe(id=recipe_id, recipe=recipe)
 
 
 @app.delete("/api/user-recipes/{recipe_id}")

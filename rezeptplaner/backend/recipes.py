@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import date, timedelta
@@ -5,6 +6,7 @@ from datetime import date, timedelta
 from .ai_client import get_client
 from .config import AppConfig, load
 from .models import Meal, Recipe, Settings, WeekPlan
+from .nutrition import enrich_nutrition
 from .prompt_builder import MEAL_SLOTS, PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ class PlannerAI:
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings, recent_recipe_names)},
-                {"role": "user", "content": self._prompts.plan(MEAL_SLOTS)},
+                {"role": "user", "content": self._prompts.plan(MEAL_SLOTS, settings.persons)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
@@ -40,6 +42,7 @@ class PlannerAI:
             Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
             for m in data["meals"]
         ]
+        await asyncio.gather(*[enrich_nutrition(m.recipe) for m in meals])
         today = date.today()
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
@@ -56,12 +59,14 @@ class PlannerAI:
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings, recent_recipe_names)},
-                {"role": "user", "content": self._prompts.single_recipe()},
+                {"role": "user", "content": self._prompts.single_recipe(settings.persons)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
         )
-        return Recipe.model_validate(json.loads(response.choices[0].message.content))
+        recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
+        await enrich_nutrition(recipe)
+        return recipe
 
     async def replace_meal(
         self,
@@ -78,12 +83,14 @@ class PlannerAI:
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings)},
-                {"role": "user", "content": self._prompts.swap(old_recipe_name, reason, day, meal_type)},
+                {"role": "user", "content": self._prompts.swap(old_recipe_name, reason, day, meal_type, settings.persons)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
         )
-        return Recipe.model_validate(json.loads(response.choices[0].message.content))
+        recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
+        await enrich_nutrition(recipe)
+        return recipe
 
     async def chat(
         self,

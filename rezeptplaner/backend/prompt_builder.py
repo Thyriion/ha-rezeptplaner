@@ -28,19 +28,20 @@ _REASON_DE = {
     "sonstiges": "sonstiger Grund",
 }
 
-_RECIPE_SCHEMA = """{
+def _recipe_schema(persons: int) -> str:
+    return f"""{{
   "name": "Rezeptname",
   "cooking_time_minutes": 25,
-  "servings": 2,
+  "servings": {persons},
   "ingredients": [
-    {"name": "Zutat", "amount": 200, "unit": "g",
-     "category": "Fleisch & Fisch"}
+    {{"name": "Zutat", "name_en": "ingredient in English", "amount": 200, "unit": "g",
+     "category": "Fleisch & Fisch"}}
   ],
   "steps": ["Schritt 1", "Schritt 2", "Schritt 3"],
-  "nutrition_per_serving": {
+  "nutrition_per_serving": {{
     "calories": 520, "protein_g": 38, "carbs_g": 22, "fat_g": 18
-  }
-}"""
+  }}
+}}"""
 
 
 class PromptBuilder:
@@ -92,7 +93,7 @@ class PromptBuilder:
                     lines.append(f"  - {name}")
         return "\n".join(lines)
 
-    def plan(self, slots: list[tuple[str, str]]) -> str:
+    def plan(self, slots: list[tuple[str, str]], persons: int) -> str:
         slot_list = "\n".join(
             f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in slots
         )
@@ -106,7 +107,7 @@ Antworte ausschließlich mit folgendem JSON-Format (kein Text drumherum):
     {{
       "day": "monday",
       "meal_type": "dinner",
-      "recipe": {_RECIPE_SCHEMA}
+      "recipe": {_recipe_schema(persons)}
     }}
   ]
 }}
@@ -117,18 +118,16 @@ Regeln:
 - "category" bei Zutaten: {cat_list}
 - Alle Texte auf Deutsch
 - Genau {len(slots)} Einträge entsprechend der Slot-Liste oben
-- VIELFALT: Wähle mindestens 4 verschiedene Küchenstile/Länder (z.B. Deutsch, Italienisch, Asiatisch, Mexikanisch, Mediterran, Indisch…)
-- VIELFALT: Keine zwei Gerichte mit derselben Hauptzutat (z.B. nicht zweimal Hähnchen)
 - VIELFALT: Abwechslung bei Fleisch, Fisch, vegetarisch — nicht alles vom gleichen Typ
 - Lieblingsgerichte/-zutaten höchstens 1× einbauen und zufällig auf verschiedene Wochentage verteilen
 """
 
-    def single_recipe(self) -> str:
+    def single_recipe(self, persons: int) -> str:
         cat_list = ", ".join(CATEGORIES)
         return f"""Schlage ein einzelnes Rezept vor.
 
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
-{_RECIPE_SCHEMA}
+{_recipe_schema(persons)}
 
 Regeln:
 - "category" bei Zutaten: {cat_list}
@@ -136,14 +135,14 @@ Regeln:
 - Berücksichtige die Präferenzen aus dem System-Prompt
 """
 
-    def swap(self, old_name: str, reason: str, day: str, meal_type: str) -> str:
+    def swap(self, old_name: str, reason: str, day: str, meal_type: str, persons: int) -> str:
         reason_de = _REASON_DE.get(reason, reason)
         cat_list = ", ".join(CATEGORIES)
         return f"""Ersetze das Gericht "{old_name}" für {_DAY_DE[day]} ({_MEAL_DE[meal_type]}).
 Grund: {reason_de}
 
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
-{_RECIPE_SCHEMA}
+{_recipe_schema(persons)}
 
 Regeln:
 - Wähle etwas komplett anderes als "{old_name}" — anderer Küchenstil, andere Hauptzutat
