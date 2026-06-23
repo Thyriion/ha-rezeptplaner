@@ -1,5 +1,5 @@
 name: Rezeptplaner
-version: "0.6.0"
+version: "0.6.1"
 slug: rezeptplaner
 description: KI-gestützter Wochenrezeptplaner
 url: https://github.com/Thyriion/ha-rezeptplaner
@@ -18,7 +18,9 @@ options:
   ai_base_url: "https://api.mistral.ai/v1"
   ai_model: "mistral-small-latest"
   ai_api_key: ""
+  usda_api_key: "DEMO_KEY"
 schema:
   ai_base_url: str
   ai_model: str
   ai_api_key: password
+  usda_api_key: str

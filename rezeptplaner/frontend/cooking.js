@@ -114,44 +114,12 @@ function parseStepTime(text) {
   return n * 60;
 }
 
+let _duckAudio = null;
 function playTimerSound() {
   try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    function quack(t) {
-      const osc1 = ctx.createOscillator();
-      const osc2 = ctx.createOscillator();
-      const formant = ctx.createBiquadFilter();
-      const gain = ctx.createGain();
-
-      osc1.type = 'sawtooth';
-      osc1.frequency.setValueAtTime(350, t);
-      osc1.frequency.exponentialRampToValueAtTime(200, t + 0.28);
-
-      osc2.type = 'square';
-      osc2.frequency.setValueAtTime(175, t);
-      osc2.frequency.exponentialRampToValueAtTime(100, t + 0.28);
-
-      formant.type = 'bandpass';
-      formant.frequency.value = 1000;
-      formant.Q.value = 8;
-
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.55, t + 0.03);
-      gain.gain.setValueAtTime(0.55, t + 0.14);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
-
-      osc1.connect(formant);
-      osc2.connect(formant);
-      formant.connect(gain);
-      gain.connect(ctx.destination);
-
-      osc1.start(t); osc1.stop(t + 0.30);
-      osc2.start(t); osc2.stop(t + 0.30);
-    }
-    const now = ctx.currentTime;
-    quack(now);
-    quack(now + 0.45);
-    quack(now + 0.85);
+    if (!_duckAudio) _duckAudio = new Audio('duck.mp3');
+    _duckAudio.currentTime = 0;
+    _duckAudio.play();
   } catch { /* Audio nicht verfügbar */ }
 }
 

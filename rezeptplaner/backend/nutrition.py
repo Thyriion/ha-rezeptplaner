@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -7,7 +6,6 @@ from .models import Ingredient, NutritionInfo, Recipe
 
 logger = logging.getLogger(__name__)
 
-USDA_API_KEY = "DEMO_KEY"
 USDA_SEARCH = "https://api.nal.usda.gov/fdc/v1/foods/search"
 
 _UNIT_TO_G: dict[str, float] = {
@@ -20,60 +18,77 @@ _UNIT_TO_G: dict[str, float] = {
     "prise": 0.5, "pinch": 0.5,
 }
 
+# In-process cache: ingredient name_en → nutrients per 100g (or None if not found)
+_cache: dict[str, dict | None] = {}
+
 
 def _to_grams(amount: float, unit: str) -> float | None:
     factor = _UNIT_TO_G.get(unit.lower().strip())
     return amount * factor if factor is not None else None
 
 
-async def _usda_per_100g(name_en: str) -> dict | None:
+async def _usda_per_100g(name_en: str, api_key: str) -> dict | None:
+    if name_en in _cache:
+        return _cache[name_en]
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.get(
                 USDA_SEARCH,
                 params={
                     "query": name_en,
-                    "api_key": USDA_API_KEY,
+                    "api_key": api_key,
                     "dataType": "Foundation,SR Legacy",
                     "pageSize": 1,
                 },
             )
             foods = resp.json().get("foods", [])
             if not foods:
+                _cache[name_en] = None
                 return None
             nutrients = {n["nutrientName"]: n["value"] for n in foods[0]["foodNutrients"]}
-            return {
-                "calories": nutrients.get("Energy (Atwater General Factors)") or nutrients.get("Energy (Atwater Specific Factors)") or 0,
+            result = {
+                "calories": (
+                    nutrients.get("Energy (Atwater General Factors)")
+                    or nutrients.get("Energy (Atwater Specific Factors)")
+                    or nutrients.get("Energy")
+                    or 0
+                ),
                 "protein_g": nutrients.get("Protein") or 0,
                 "carbs_g": nutrients.get("Carbohydrate, by difference") or 0,
                 "fat_g": nutrients.get("Total lipid (fat)") or 0,
             }
+            _cache[name_en] = result
+            return result
     except Exception:
         logger.warning("USDA lookup failed for %r", name_en)
+        _cache[name_en] = None
         return None
 
 
-async def _ingredient_contribution(ing: Ingredient) -> dict | None:
-    if not ing.name_en:
-        return None
-    grams = _to_grams(ing.amount, ing.unit)
-    if grams is None:
-        return None
-    per_100g = await _usda_per_100g(ing.name_en)
-    if per_100g is None:
-        return None
-    factor = grams / 100
-    return {k: v * factor for k, v in per_100g.items()}
-
-
-async def enrich_nutrition(recipe: Recipe) -> None:
+async def enrich_nutrition(recipe: Recipe, api_key: str = "DEMO_KEY") -> None:
     """Replace recipe.nutrition_per_serving with USDA-based values in-place.
+    Processes ingredients sequentially to respect API rate limits.
     Falls back silently if data is insufficient."""
-    contributions = await asyncio.gather(*[_ingredient_contribution(ing) for ing in recipe.ingredients])
-    valid = [c for c in contributions if c is not None]
-    if not valid:
+    totals = {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
+    found_any = False
+
+    for ing in recipe.ingredients:
+        if not ing.name_en:
+            continue
+        grams = _to_grams(ing.amount, ing.unit)
+        if grams is None:
+            continue
+        per_100g = await _usda_per_100g(ing.name_en, api_key)
+        if per_100g is None:
+            continue
+        found_any = True
+        factor = grams / 100
+        for k in totals:
+            totals[k] += per_100g[k] * factor
+
+    if not found_any:
         return
-    totals = {k: sum(c[k] for c in valid) for k in ("calories", "protein_g", "carbs_g", "fat_g")}
+
     s = max(recipe.servings, 1)
     recipe.nutrition_per_serving = NutritionInfo(
         calories=round(totals["calories"] / s),

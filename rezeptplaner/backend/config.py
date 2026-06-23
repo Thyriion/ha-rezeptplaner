@@ -11,6 +11,7 @@ class AppConfig(BaseModel):
     base_url: str = "https://api.mistral.ai/v1"
     model: str = "mistral-small-latest"
     api_key: str = ""
+    usda_api_key: str = "DEMO_KEY"
 
 
 def load() -> AppConfig:
@@ -20,10 +21,12 @@ def load() -> AppConfig:
             base_url=data.get("ai_base_url", "https://api.mistral.ai/v1"),
             model=data.get("ai_model", "mistral-small-latest"),
             api_key=data.get("ai_api_key", ""),
+            usda_api_key=data.get("usda_api_key", "DEMO_KEY"),
         )
     except FileNotFoundError:
         return AppConfig(
             base_url=os.environ.get("AI_BASE_URL", "https://api.mistral.ai/v1"),
             model=os.environ.get("AI_MODEL", "mistral-small-latest"),
             api_key=os.environ.get("AI_API_KEY", ""),
+            usda_api_key=os.environ.get("USDA_API_KEY", "DEMO_KEY"),
         )

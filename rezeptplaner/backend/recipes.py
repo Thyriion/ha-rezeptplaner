@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 from datetime import date, timedelta
@@ -42,7 +41,8 @@ class PlannerAI:
             Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
             for m in data["meals"]
         ]
-        await asyncio.gather(*[enrich_nutrition(m.recipe) for m in meals])
+        for m in meals:
+            await enrich_nutrition(m.recipe, self._cfg.usda_api_key)
         today = date.today()
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
@@ -65,7 +65,7 @@ class PlannerAI:
             temperature=0.95,
         )
         recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
-        await enrich_nutrition(recipe)
+        await enrich_nutrition(recipe, self._cfg.usda_api_key)
         return recipe
 
     async def replace_meal(
@@ -89,7 +89,7 @@ class PlannerAI:
             temperature=0.95,
         )
         recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
-        await enrich_nutrition(recipe)
+        await enrich_nutrition(recipe, self._cfg.usda_api_key)
         return recipe
 
     async def chat(
