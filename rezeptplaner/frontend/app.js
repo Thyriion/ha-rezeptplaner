@@ -1,7 +1,7 @@
 'use strict';
 
 import { apiGet } from './api.js';
-import { state } from './state.js';
+import { planState, swapState, recipeState } from './state.js';
 import { loadAllPlans, loadRatings, updatePlanNav, navigatePlan, renderPlan,
          toggleMeal, confirmPlan, deletePlan,
          openSwapModal, closeSwapModal, confirmSwap, selectSwapMode,
@@ -49,7 +49,7 @@ async function init() {
   try {
     const s = await apiGet('api/settings');
     if (!s || s.persons === undefined) { showWizard(); return; }
-    state.settings = s;
+    planState.settings = s;
     document.getElementById('app').classList.remove('hidden');
     await Promise.all([loadAllPlans(), loadRatings(), loadUserRecipes()]);
   } catch {
@@ -110,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#swap-reasons .option-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      state.swapReason = btn.dataset.value;
+      swapState.reason = btn.dataset.value;
       document.getElementById('swap-confirm-btn').disabled = false;
     })
   );
@@ -120,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#add-day-options .option-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      state.addDay = btn.dataset.value;
+      recipeState.addDay = btn.dataset.value;
       checkAddToPlanReady();
     })
   );
@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => {
       document.querySelectorAll('#add-meal-type-options .option-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      state.addMealType = btn.dataset.value;
+      recipeState.addMealType = btn.dataset.value;
       checkAddToPlanReady();
     })
   );

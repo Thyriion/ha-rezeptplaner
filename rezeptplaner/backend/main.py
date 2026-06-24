@@ -5,14 +5,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 from .ai_client import test_connection as ai_test_connection
-from .database import init_db
-from .ha_client import NoopAdapter, SupervisorAdapter
-from .database import (
-    delete_user_recipe,
-    get_user_recipes,
-    save_user_recipe,
-    update_user_recipe,
-)
+from .database import DB_PATH, PlanStore
+from .ha_client import SupervisorAdapter
 from .models import (
     AddRecipeRequest,
     ChatRequest,
@@ -34,16 +28,19 @@ from .recipes import PlannerAI
 from .service import PlanService
 from .shopping import build_shopping_list, push_items
 
+_service: PlanService
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    global _service
+    store = await PlanStore.init(DB_PATH)
+    _service = PlanService(store, PlannerAI())
     yield
 
 
 ingress_path = os.environ.get("INGRESS_PATH", "")
 app = FastAPI(root_path=ingress_path, lifespan=lifespan)
-_service = PlanService(PlannerAI())
 
 
 # --- Health ---
@@ -165,12 +162,14 @@ async def get_all_ratings():
 
 @app.get("/api/shopping-list", response_model=ShoppingList)
 async def get_shopping_list(plan_id: int | None = None):
-    return await build_shopping_list(plan_id)
+    plan = await _service.get_plan(plan_id)
+    return build_shopping_list(plan)
 
 
 @app.post("/api/shopping-list/push-to-ha")
 async def push_shopping_list_to_ha(plan_id: int | None = None):
-    shopping_list = await build_shopping_list(plan_id)
+    plan = await _service.get_plan(plan_id)
+    shopping_list = build_shopping_list(plan)
     token = os.environ.get("SUPERVISOR_TOKEN", "")
     if not token:
         return {"ok": False, "error": "SUPERVISOR_TOKEN nicht verfügbar — ist 'auth_api: true' in der Add-on Konfiguration gesetzt?"}
@@ -184,27 +183,28 @@ async def push_shopping_list_to_ha(plan_id: int | None = None):
 
 @app.get("/api/user-recipes", response_model=list[UserRecipe])
 async def list_user_recipes():
-    rows = await get_user_recipes()
-    return [UserRecipe(id=r["id"], recipe=Recipe.model_validate_json(r["recipe_json"])) for r in rows]
+    return await _service.list_user_recipes()
 
 
 @app.post("/api/user-recipes", response_model=UserRecipe)
 async def create_user_recipe(recipe: Recipe):
-    new_id = await save_user_recipe(recipe.model_dump_json())
-    return UserRecipe(id=new_id, recipe=recipe)
+    return await _service.create_user_recipe(recipe)
 
 
 @app.put("/api/user-recipes/{recipe_id}", response_model=UserRecipe)
 async def edit_user_recipe(recipe_id: int, recipe: Recipe):
-    if not await update_user_recipe(recipe_id, recipe.model_dump_json()):
-        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
-    return UserRecipe(id=recipe_id, recipe=recipe)
+    try:
+        return await _service.edit_user_recipe(recipe_id, recipe)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.delete("/api/user-recipes/{recipe_id}")
 async def remove_user_recipe(recipe_id: int):
-    if not await delete_user_recipe(recipe_id):
-        raise HTTPException(status_code=404, detail="Rezept nicht gefunden")
+    try:
+        await _service.delete_user_recipe(recipe_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
 
 

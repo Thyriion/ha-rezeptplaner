@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0 – 2026-06-24
+
+### Architektur-Refactoring
+- **PlanStore**: Alle 22 freien DB-Funktionen zu einer injizierbaren Klasse zusammengefasst. `save_new_plan()` und `apply_swap()` als atomare Operationen.
+- **NutritionClient**: Injizierbare Klasse ersetzt freie `enrich_nutrition()`-Funktion. Gibt `NutritionInfo | None` zurück statt in-place zu mutieren.
+- **PlanService**: User-Rezepte laufen jetzt vollständig durch den Service — kein direkter DB-Zugriff mehr aus `main.py`.
+- **`_context()` entfernt**: Jede Service-Methode lädt nur noch die Daten, die sie tatsächlich braucht.
+- **state.js aufgeteilt**: Globales `state`-Objekt in vier domain-ausgerichtete Slices aufgeteilt (`planState`, `swapState`, `wizardState`, `recipeState`).
+- **Testinfrastruktur**: Erste Backend-Tests mit `MemoryPlanStore` und `FakePlannerAI` (kein KI-API-Aufruf nötig).
+
+---
+
 ## 0.4.1 – 2026-06-20
 
 ### Bugfixes

@@ -1,15 +1,15 @@
 'use strict';
 
 import { apiGet, apiPost, apiDelete } from './api.js';
-import { DAY_LABELS, DAY_ORDER, MEAL_LABELS, state } from './state.js';
+import { DAY_LABELS, DAY_ORDER, MEAL_LABELS, planState, swapState, recipeState } from './state.js';
 import { showToast, switchTab } from './app.js';
 import { openCooking } from './cooking.js';
 
 export async function loadAllPlans() {
   try {
-    state.allPlans = await apiGet('api/plans');
-    state.currentPlanIdx = 0;
-    if (state.allPlans.length > 0) await loadPlanById(state.allPlans[0].id);
+    planState.allPlans = await apiGet('api/plans');
+    planState.currentPlanIdx = 0;
+    if (planState.allPlans.length > 0) await loadPlanById(planState.allPlans[0].id);
     updatePlanNav();
   } catch { /* silent */ }
 }
@@ -17,12 +17,12 @@ export async function loadAllPlans() {
 export async function loadPlanById(planId) {
   try {
     const plan = await apiGet(`api/plan/${planId}`);
-    if (plan) { state.plan = plan; renderPlan(); }
+    if (plan) { planState.plan = plan; renderPlan(); }
   } catch { /* silent */ }
 }
 
 export async function loadRatings() {
-  try { state.ratings = await apiGet('api/recipe/ratings'); } catch { /* silent */ }
+  try { planState.ratings = await apiGet('api/recipe/ratings'); } catch { /* silent */ }
 }
 
 export function updatePlanNav() {
@@ -30,27 +30,27 @@ export function updatePlanNav() {
   const label = document.getElementById('plan-nav-label');
   const prev = document.getElementById('plan-nav-prev');
   const next = document.getElementById('plan-nav-next');
-  if (state.allPlans.length === 0) { nav.classList.add('hidden'); return; }
+  if (planState.allPlans.length === 0) { nav.classList.add('hidden'); return; }
   nav.classList.remove('hidden');
-  const meta = state.allPlans[state.currentPlanIdx];
+  const meta = planState.allPlans[planState.currentPlanIdx];
   const d = new Date(meta.week_start + 'T00:00:00');
   const end = new Date(d); end.setDate(d.getDate() + 6);
   const fmt = dt => dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
   label.textContent = `${fmt(d)} – ${fmt(end)}`;
-  prev.disabled = state.currentPlanIdx >= state.allPlans.length - 1;
-  next.disabled = state.currentPlanIdx <= 0;
+  prev.disabled = planState.currentPlanIdx >= planState.allPlans.length - 1;
+  next.disabled = planState.currentPlanIdx <= 0;
 }
 
 export async function navigatePlan(dir) {
-  const newIdx = state.currentPlanIdx + (-dir);
-  if (newIdx < 0 || newIdx >= state.allPlans.length) return;
-  state.currentPlanIdx = newIdx;
-  await loadPlanById(state.allPlans[newIdx].id);
+  const newIdx = planState.currentPlanIdx + (-dir);
+  if (newIdx < 0 || newIdx >= planState.allPlans.length) return;
+  planState.currentPlanIdx = newIdx;
+  await loadPlanById(planState.allPlans[newIdx].id);
   updatePlanNav();
 }
 
 export function renderPlan() {
-  const plan = state.plan;
+  const plan = planState.plan;
   const container = document.getElementById('plan-content');
   if (!plan?.meals?.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p></div>`;
@@ -90,7 +90,7 @@ export function renderMealCard(meal, isConfirmed) {
   const r = meal.recipe, n = r.nutrition_per_serving;
   const disabled = (isConfirmed || meal.confirmed) ? 'disabled' : '';
   const amt = i => `${i.amount === Math.floor(i.amount) ? Math.floor(i.amount) : i.amount} ${i.unit}`;
-  const currentRating = state.ratings[r.name] ?? 5;
+  const currentRating = planState.ratings[r.name] ?? 5;
   const stars = renderStars(r.name, currentRating);
   return `<div class="plan-meal" id="meal-${meal.id}">
     <div class="plan-meal-header" onclick="toggleMeal(${meal.id})">
@@ -134,7 +134,7 @@ export function renderStars(recipeName, currentScore) {
 export async function rateMeal(recipeName, score) {
   try {
     await apiPost('api/recipe/rate', { recipe_name: recipeName, score });
-    state.ratings[recipeName] = score;
+    planState.ratings[recipeName] = score;
     renderPlan();
     showToast(`Bewertet: ${score}/10`, 'success');
   } catch { showToast('Fehler beim Bewerten.', 'error'); }
@@ -145,7 +145,7 @@ export function toggleMeal(id) { document.getElementById(`meal-${id}`)?.classLis
 export async function confirmPlan() {
   try {
     await apiPost('api/plan/confirm', {});
-    if (state.plan) state.plan.meals.forEach(m => m.confirmed = true);
+    if (planState.plan) planState.plan.meals.forEach(m => m.confirmed = true);
     renderPlan();
     showToast('Wochenplan bestätigt! Einkaufsliste ist bereit.', 'success');
     switchTab('shopping');
@@ -156,21 +156,21 @@ export async function deletePlan(planId) {
   if (!confirm('Diese Woche wirklich löschen? Deine Vorlieben und der Tausch-Verlauf bleiben erhalten.')) return;
   try {
     await apiDelete(`api/plan/${planId}`);
-    state.plan = null;
+    planState.plan = null;
     await loadAllPlans();
     showToast('Wochenplan gelöscht.', 'success');
-    if (state.allPlans.length === 0) {
+    if (planState.allPlans.length === 0) {
       document.getElementById('plan-content').innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p></div>`;
     }
   } catch { showToast('Fehler beim Löschen.', 'error'); }
 }
 
 export function openSwapModal(mealId, mealName) {
-  state.swapMealId = mealId;
-  state.swapMealName = mealName;
-  state.swapReason = null;
-  state.swapMode = null;
-  state.swapRecipeId = null;
+  swapState.mealId = mealId;
+  swapState.mealName = mealName;
+  swapState.reason = null;
+  swapState.mode = null;
+  swapState.recipeId = null;
   document.getElementById('swap-meal-name').textContent = mealName;
   document.getElementById('swap-mode-section').classList.remove('hidden');
   document.getElementById('swap-ai-section').classList.add('hidden');
@@ -184,7 +184,7 @@ export function openSwapModal(mealId, mealName) {
 export function closeSwapModal() { document.getElementById('swap-modal').classList.add('hidden'); }
 
 export function selectSwapMode(mode) {
-  state.swapMode = mode;
+  swapState.mode = mode;
   document.getElementById('swap-mode-section').classList.add('hidden');
   document.getElementById('swap-back-btn').style.display = '';
   if (mode === 'ai') {
@@ -198,7 +198,7 @@ export function selectSwapMode(mode) {
 
 function renderSwapRecipeList() {
   const list = document.getElementById('swap-recipe-list');
-  const recipes = state.userRecipes || [];
+  const recipes = recipeState.userRecipes || [];
   if (!recipes.length) {
     list.innerHTML = '<p class="hint" style="text-align:center;padding:16px 0">Keine eigenen Rezepte vorhanden.<br>Füge zuerst Rezepte unter "📖 Rezepte" hinzu.</p>';
     return;
@@ -209,16 +209,16 @@ function renderSwapRecipeList() {
 }
 
 export function selectSwapRecipe(recipeId, btn) {
-  state.swapRecipeId = recipeId;
+  swapState.recipeId = recipeId;
   document.querySelectorAll('#swap-recipe-list .option-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('swap-confirm-btn').disabled = false;
 }
 
 export function swapGoBack() {
-  state.swapMode = null;
-  state.swapReason = null;
-  state.swapRecipeId = null;
+  swapState.mode = null;
+  swapState.reason = null;
+  swapState.recipeId = null;
   document.getElementById('swap-mode-section').classList.remove('hidden');
   document.getElementById('swap-ai-section').classList.add('hidden');
   document.getElementById('swap-recipe-section').classList.add('hidden');
@@ -228,22 +228,22 @@ export function swapGoBack() {
 }
 
 export async function confirmSwap() {
-  if (!state.swapMealId || !state.swapMode) return;
-  if (state.swapMode === 'ai' && !state.swapReason) return;
-  if (state.swapMode === 'recipe' && !state.swapRecipeId) return;
+  if (!swapState.mealId || !swapState.mode) return;
+  if (swapState.mode === 'ai' && !swapState.reason) return;
+  if (swapState.mode === 'recipe' && !swapState.recipeId) return;
   const btn = document.getElementById('swap-confirm-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Wird getauscht…';
   try {
     let updated;
-    if (state.swapMode === 'ai') {
-      updated = await apiPost('api/plan/swap', { meal_id: state.swapMealId, reason: state.swapReason });
+    if (swapState.mode === 'ai') {
+      updated = await apiPost('api/plan/swap', { meal_id: swapState.mealId, reason: swapState.reason });
     } else {
-      updated = await apiPost('api/plan/swap-with-recipe', { meal_id: state.swapMealId, recipe_id: state.swapRecipeId });
+      updated = await apiPost('api/plan/swap-with-recipe', { meal_id: swapState.mealId, recipe_id: swapState.recipeId });
     }
-    if (state.plan) {
-      const idx = state.plan.meals.findIndex(m => m.id === state.swapMealId);
-      if (idx !== -1) state.plan.meals[idx] = updated;
+    if (planState.plan) {
+      const idx = planState.plan.meals.findIndex(m => m.id === swapState.mealId);
+      if (idx !== -1) planState.plan.meals[idx] = updated;
     }
     closeSwapModal();
     renderPlan();

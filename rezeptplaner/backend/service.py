@@ -1,88 +1,59 @@
 from datetime import date, timedelta
 
-import json
-
-from .database import (
-    add_meal_to_plan,
-    confirm_plan as db_confirm_plan,
-    create_plan,
-    delete_plan_by_id,
-    get_all_plan_metas,
-    get_current_plan,
-    get_meal_by_id,
-    get_plan_by_id,
-    get_ratings,
-    get_recent_recipe_names,
-    get_recent_swaps,
-    get_settings,
-    get_user_recipe_by_id,
-    record_swap,
-    save_meals,
-    save_rating,
-    save_settings,
-    update_meal,
-)
-from .models import Meal, PlanMeta, Recipe, Settings, SlotConfig, WeekPlan
+from .database import PlanStore
+from .models import Meal, PlanMeta, Recipe, Settings, SlotConfig, UserRecipe, WeekPlan
 from .prompt_builder import MEAL_SLOTS
 from .recipes import PlannerAI
 
 
 class PlanService:
-    def __init__(self, planner: PlannerAI) -> None:
+    def __init__(self, store: PlanStore, planner: PlannerAI) -> None:
+        self._store = store
         self._planner = planner
 
     # ── Settings ──────────────────────────────────────────────────
 
     async def get_settings(self) -> Settings:
-        return Settings(**(await get_settings() or {}))
+        return Settings(**(await self._store.get_settings() or {}))
 
     async def update_settings(self, settings: Settings) -> Settings:
-        await save_settings(settings)
+        await self._store.save_settings(settings)
         return settings
 
     # ── Plans ─────────────────────────────────────────────────────
 
     async def list_plans(self) -> list[PlanMeta]:
-        return [PlanMeta(**m) for m in await get_all_plan_metas()]
+        return [PlanMeta(**m) for m in await self._store.get_all_plan_metas()]
 
     async def get_plan(self, plan_id: int | None = None) -> WeekPlan | None:
         if plan_id is not None:
-            return await get_plan_by_id(plan_id)
-        return await get_current_plan()
+            return await self._store.get_plan_by_id(plan_id)
+        return await self._store.get_current_plan()
 
     async def confirm_plan(self, plan_id: int) -> None:
-        await db_confirm_plan(plan_id)
+        await self._store.confirm_plan(plan_id)
 
     async def delete_plan(self, plan_id: int) -> bool:
-        return await delete_plan_by_id(plan_id)
+        return await self._store.delete_plan_by_id(plan_id)
 
     async def add_recipe_to_plan(self, plan_id: int, day: str, meal_type: str, recipe: Recipe) -> Meal:
         meal = Meal(day=day, meal_type=meal_type, recipe=recipe)
-        meal.id = await add_meal_to_plan(plan_id, meal)
-        return meal
+        return await self._store.add_meal_to_plan(plan_id, meal)
 
     # ── Ratings ───────────────────────────────────────────────────
 
     async def rate(self, recipe_name: str, score: int) -> None:
-        await save_rating(recipe_name, score)
+        await self._store.save_rating(recipe_name, score)
 
     async def ratings(self) -> dict[str, int]:
-        return await get_ratings()
+        return await self._store.get_ratings()
 
     # ── AI ────────────────────────────────────────────────────────
 
-    async def _context(self) -> tuple[Settings, list[dict], dict[str, int], list[str]]:
-        settings = await self.get_settings()
-        return (
-            settings,
-            await get_recent_swaps(),
-            await get_ratings(),
-            await get_recent_recipe_names(),
-        )
-
     async def handle_chat(self, message: str) -> tuple[str, WeekPlan | None]:
-        settings, recent_swaps, _, _ = await self._context()
-        current_plan = await get_current_plan()
+        settings = await self.get_settings()
+        recent_swaps = await self._store.get_recent_swaps()
+        current_plan = await self._store.get_current_plan()
         reply, wants_plan = await self._planner.chat(message, settings, current_plan, recent_swaps)
         if not wants_plan:
             return reply, None
@@ -92,7 +63,10 @@ class PlanService:
         return await self._generate_and_save_plan(slot_configs)
 
     async def _generate_and_save_plan(self, slot_configs: list[SlotConfig] | None = None) -> tuple[str, WeekPlan]:
-        settings, recent_swaps, ratings, recent_names = await self._context()
+        settings = await self.get_settings()
+        recent_swaps = await self._store.get_recent_swaps()
+        ratings = await self._store.get_ratings()
+        recent_names = await self._store.get_recent_recipe_names()
 
         if slot_configs:
             slot_modes = {(s.day, s.meal_type): s.mode for s in slot_configs}
@@ -130,18 +104,14 @@ class PlanService:
 
         today = date.today()
         this_monday = today - timedelta(days=today.weekday())
-        existing = await get_all_plan_metas()
+        existing = await self._store.get_all_plan_metas()
         if existing:
             latest = max(date.fromisoformat(m["week_start"]) for m in existing)
             new_plan.week_start = max(latest + timedelta(weeks=1), this_monday).isoformat()
         else:
             new_plan.week_start = this_monday.isoformat()
 
-        plan_id = await create_plan(new_plan.week_start)
-        meal_ids = await save_meals(plan_id, new_plan.meals)
-        for meal, mid in zip(new_plan.meals, meal_ids):
-            meal.id = mid
-        new_plan.id = plan_id
+        new_plan = await self._store.save_new_plan(new_plan)
 
         normal_meals = [m for m in new_plan.meals if not m.is_leftovers]
         highlights = ", ".join(m.recipe.name for m in normal_meals[:3])
@@ -155,32 +125,33 @@ class PlanService:
         return reply, new_plan
 
     async def generate_single_recipe(self) -> Recipe:
-        settings, recent_swaps, ratings, recent_names = await self._context()
+        settings = await self.get_settings()
+        recent_swaps = await self._store.get_recent_swaps()
+        ratings = await self._store.get_ratings()
+        recent_names = await self._store.get_recent_recipe_names()
         return await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
 
     async def swap_meal_with_recipe(self, meal_id: int, recipe_id: int) -> Meal:
-        meal = await get_meal_by_id(meal_id)
+        meal = await self._store.get_meal_by_id(meal_id)
         if not meal:
             raise LookupError("Mahlzeit nicht gefunden")
-        user_recipe = await get_user_recipe_by_id(recipe_id)
+        user_recipe = await self._store.get_user_recipe_by_id(recipe_id)
         if not user_recipe:
             raise LookupError("Eigenes Rezept nicht gefunden")
-        recipe = Recipe.model_validate_json(user_recipe["recipe_json"])
-        await record_swap(meal_id, meal.recipe.name, "eigenes_rezept")
-        await update_meal(meal_id, recipe)
-        meal.recipe = recipe
-        return meal
+        return await self._store.apply_swap(meal_id, user_recipe.recipe, "eigenes_rezept")
 
     async def swap_meal(self, meal_id: int, reason: str) -> Meal:
-        meal = await get_meal_by_id(meal_id)
+        meal = await self._store.get_meal_by_id(meal_id)
         if not meal:
             raise LookupError("Mahlzeit nicht gefunden")
-        current_plan = await get_current_plan()
+        current_plan = await self._store.get_current_plan()
         current_names = [
             m.recipe.name for m in (current_plan.meals if current_plan else [])
             if m.id != meal_id and not m.is_leftovers
         ]
-        settings, recent_swaps, ratings, _ = await self._context()
+        settings = await self.get_settings()
+        recent_swaps = await self._store.get_recent_swaps()
+        ratings = await self._store.get_ratings()
         new_recipe = await self._planner.replace_meal(
             old_recipe_name=meal.recipe.name,
             reason=reason,
@@ -191,7 +162,23 @@ class PlanService:
             ratings=ratings,
             current_recipe_names=current_names or None,
         )
-        await record_swap(meal_id, meal.recipe.name, reason)
-        await update_meal(meal_id, new_recipe)
-        meal.recipe = new_recipe
-        return meal
+        return await self._store.apply_swap(meal_id, new_recipe, reason)
+
+    # ── User Recipes ──────────────────────────────────────────────
+
+    async def list_user_recipes(self) -> list[UserRecipe]:
+        return await self._store.get_user_recipes()
+
+    async def create_user_recipe(self, recipe: Recipe) -> UserRecipe:
+        return await self._store.save_user_recipe(recipe)
+
+    async def edit_user_recipe(self, recipe_id: int, recipe: Recipe) -> UserRecipe:
+        result = await self._store.update_user_recipe(recipe_id, recipe)
+        if not result:
+            raise LookupError("Rezept nicht gefunden")
+        return result
+
+    async def delete_user_recipe(self, recipe_id: int) -> bool:
+        if not await self._store.delete_user_recipe(recipe_id):
+            raise LookupError("Rezept nicht gefunden")
+        return True

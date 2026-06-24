@@ -1,26 +1,35 @@
 'use strict';
 
-export const state = {
+export const planState = {
   settings: null,
   allPlans: [],
   currentPlanIdx: 0,
   plan: null,
   ratings: {},
-  swapMealId: null,
-  swapMealName: null,
-  swapReason: null,
-  swapMode: null,
-  swapRecipeId: null,
-  pendingSingleRecipe: null,
-  addDay: null,
-  addMealType: null,
-  wizardStep: 1,
-  wizardData: {
+};
+
+export const swapState = {
+  mealId: null,
+  mealName: null,
+  reason: null,
+  mode: null,
+  recipeId: null,
+};
+
+export const wizardState = {
+  step: 1,
+  data: {
     persons: 2, diet_types: [], disliked_foods: [],
     favorite_foods: [], max_cooking_time: 30, budget: 'mittel',
     likes_spicy: false,
   },
+};
+
+export const recipeState = {
   userRecipes: [],
+  pending: null,
+  addDay: null,
+  addMealType: null,
 };
 
 export const cooking = {

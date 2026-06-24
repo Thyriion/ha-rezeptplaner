@@ -1,25 +1,25 @@
 'use strict';
 
 import { apiGet, apiPost, apiPut, apiDelete } from './api.js';
-import { state, CATEGORIES } from './state.js';
+import { recipeState, CATEGORIES } from './state.js';
 
 let editingId = null;
 import { showToast } from './app.js';
 
 export async function loadUserRecipes() {
   try {
-    state.userRecipes = await apiGet('api/user-recipes');
+    recipeState.userRecipes = await apiGet('api/user-recipes');
     renderUserRecipes();
   } catch { /* silent */ }
 }
 
 export function renderUserRecipes() {
   const container = document.getElementById('myrecipes-content');
-  if (!state.userRecipes?.length) {
+  if (!recipeState.userRecipes?.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">📖</div><p>Noch keine eigenen Rezepte</p><p class="hint">Füge deine Lieblingsrezepte hinzu!</p></div>`;
     return;
   }
-  container.innerHTML = state.userRecipes.map(ur => renderUserRecipeCard(ur)).join('');
+  container.innerHTML = recipeState.userRecipes.map(ur => renderUserRecipeCard(ur)).join('');
 }
 
 function renderUserRecipeCard(ur) {
@@ -100,7 +100,7 @@ export function openRecipeForm(ur = null) {
 }
 
 export function editUserRecipeById(id) {
-  const ur = state.userRecipes.find(r => r.id === id);
+  const ur = recipeState.userRecipes.find(r => r.id === id);
   if (ur) openRecipeForm(ur);
 }
 
@@ -169,10 +169,10 @@ export async function saveUserRecipe() {
   try {
     if (editingId !== null) {
       const updated = await apiPut(`api/user-recipes/${editingId}`, recipe);
-      state.userRecipes = state.userRecipes.map(r => r.id === editingId ? updated : r);
+      recipeState.userRecipes = recipeState.userRecipes.map(r => r.id === editingId ? updated : r);
     } else {
       const saved = await apiPost('api/user-recipes', recipe);
-      state.userRecipes = [saved, ...(state.userRecipes || [])];
+      recipeState.userRecipes = [saved, ...(recipeState.userRecipes || [])];
     }
     renderUserRecipes();
     closeRecipeForm();
@@ -184,7 +184,7 @@ export async function deleteUserRecipeById(id) {
   if (!confirm('Rezept wirklich löschen?')) return;
   try {
     await apiDelete(`api/user-recipes/${id}`);
-    state.userRecipes = state.userRecipes.filter(r => r.id !== id);
+    recipeState.userRecipes = recipeState.userRecipes.filter(r => r.id !== id);
     renderUserRecipes();
     showToast('Rezept gelöscht.', 'success');
   } catch { showToast('Fehler beim Löschen.', 'error'); }

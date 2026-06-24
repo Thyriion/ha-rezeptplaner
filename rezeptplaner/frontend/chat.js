@@ -1,7 +1,7 @@
 'use strict';
 
 import { apiPost } from './api.js';
-import { state, DAY_LABELS, MEAL_LABELS } from './state.js';
+import { planState, recipeState, DAY_LABELS, MEAL_LABELS } from './state.js';
 import { showToast, switchTab } from './app.js';
 import { loadAllPlans, renderPlan, updatePlanNav } from './plan.js';
 
@@ -110,7 +110,7 @@ export async function quickSingleRecipe() {
   try {
     const recipe = await apiPost('api/recipe/single', {});
     typing.remove();
-    state.pendingSingleRecipe = recipe;
+    recipeState.pending = recipe;
     appendSingleRecipeMsg(recipe);
   } catch {
     typing.remove();
@@ -125,7 +125,7 @@ function appendSingleRecipeMsg(recipe) {
   const n = recipe.nutrition_per_serving;
   el.innerHTML = `<strong>${recipe.name}</strong><br>
 <span style="color:var(--text-dim);font-size:0.85em">⏱ ${recipe.cooking_time_minutes} Min · ${n.calories} kcal · ${n.protein_g}g Protein</span>`;
-  if (state.allPlans.length > 0) {
+  if (planState.allPlans.length > 0) {
     const btn = document.createElement('button');
     btn.className = 'msg-plan-link';
     btn.textContent = '+ Zum Plan hinzufügen';
@@ -155,9 +155,9 @@ async function _doChat(body) {
 
 async function _onNewPlan() {
   await loadAllPlans();
-  if (state.allPlans.length > 0) {
+  if (planState.allPlans.length > 0) {
     const { apiGet } = await import('./api.js');
-    state.plan = await apiGet(`api/plan/${state.allPlans[0].id}`);
+    planState.plan = await apiGet(`api/plan/${planState.allPlans[0].id}`);
     renderPlan();
     updatePlanNav();
   }
@@ -188,9 +188,9 @@ export function appendMsg(role, text, isTyping = false, plan = null) {
 // ── Add-to-Plan Modal ─────────────────────────────────────────────
 
 export function openAddToPlanModal(recipe) {
-  state.pendingSingleRecipe = recipe;
-  state.addDay = null;
-  state.addMealType = null;
+  recipeState.pending = recipe;
+  recipeState.addDay = null;
+  recipeState.addMealType = null;
   document.getElementById('add-to-plan-recipe-name').textContent = recipe.name;
   document.querySelectorAll('#add-day-options .option-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('#add-meal-type-options .option-btn').forEach(b => b.classList.remove('active'));
@@ -203,23 +203,23 @@ export function closeAddToPlanModal() {
 }
 
 export function checkAddToPlanReady() {
-  document.getElementById('add-to-plan-confirm-btn').disabled = !(state.addDay && state.addMealType);
+  document.getElementById('add-to-plan-confirm-btn').disabled = !(recipeState.addDay && recipeState.addMealType);
 }
 
 export async function confirmAddToPlan() {
-  if (!state.pendingSingleRecipe || !state.addDay || !state.addMealType) return;
-  const planId = state.allPlans[state.currentPlanIdx]?.id;
+  if (!recipeState.pending || !recipeState.addDay || !recipeState.addMealType) return;
+  const planId = planState.allPlans[planState.currentPlanIdx]?.id;
   if (!planId) { showToast('Kein aktiver Plan vorhanden.', 'error'); return; }
   const btn = document.getElementById('add-to-plan-confirm-btn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
   try {
     const meal = await apiPost('api/plan/add-recipe', {
-      recipe: state.pendingSingleRecipe,
+      recipe: recipeState.pending,
       plan_id: planId,
-      day: state.addDay,
-      meal_type: state.addMealType,
+      day: recipeState.addDay,
+      meal_type: recipeState.addMealType,
     });
-    if (state.plan) state.plan.meals.push(meal);
+    if (planState.plan) planState.plan.meals.push(meal);
     closeAddToPlanModal();
     renderPlan();
     showToast('Rezept zum Plan hinzugefügt!', 'success');

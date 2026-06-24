@@ -1,10 +1,10 @@
 'use strict';
 
-import { cooking, state } from './state.js';
+import { cooking, planState } from './state.js';
 import { showToast } from './app.js';
 
 export function openCooking(mealId) {
-  const meal = state.plan?.meals.find(m => m.id === mealId);
+  const meal = planState.plan?.meals.find(m => m.id === mealId);
   if (!meal) return;
   cooking.steps = meal.recipe.steps;
   cooking.recipeName = meal.recipe.name;

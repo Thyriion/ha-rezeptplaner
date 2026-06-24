@@ -1,9 +1,8 @@
 from collections import defaultdict
 
 from .categories import CATEGORIES as CATEGORY_ORDER
-from .database import get_current_plan, get_plan_by_id
 from .ha_client import HAClient
-from .models import ShoppingItem, ShoppingList
+from .models import ShoppingItem, ShoppingList, WeekPlan
 
 _UNIT_ALIASES: dict[str, str] = {
     "stk": "stück", "stk.": "stück", "st": "stück", "st.": "stück", "stück": "stück",
@@ -29,8 +28,7 @@ def _fmt(amount: float, unit: str) -> str:
     return f"{n} {unit}".strip() if unit else str(n)
 
 
-async def build_shopping_list(plan_id: int | None = None) -> ShoppingList:
-    plan = await get_plan_by_id(plan_id) if plan_id else await get_current_plan()
+def build_shopping_list(plan: WeekPlan | None) -> ShoppingList:
     if not plan:
         return ShoppingList(items_by_category={})
 

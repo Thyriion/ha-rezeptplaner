@@ -1,7 +1,7 @@
 'use strict';
 
 import { apiPost } from './api.js';
-import { state } from './state.js';
+import { planState, wizardState } from './state.js';
 import { showToast } from './app.js';
 
 // ── Wizard ────────────────────────────────────────────────────────
@@ -12,7 +12,7 @@ export function showWizard() {
 }
 
 export function updateWizardStep(step) {
-  state.wizardStep = step;
+  wizardState.step = step;
   document.querySelectorAll('.wizard-step').forEach(el =>
     el.classList.toggle('hidden', parseInt(el.dataset.step) !== step)
   );
@@ -23,17 +23,17 @@ export function updateWizardStep(step) {
 }
 
 export function wizardBack() {
-  if (state.wizardStep > 1) updateWizardStep(state.wizardStep - 1);
+  if (wizardState.step > 1) updateWizardStep(wizardState.step - 1);
 }
 
 export async function wizardNext() {
-  collectWizardStep(state.wizardStep);
-  if (state.wizardStep < 7) { updateWizardStep(state.wizardStep + 1); return; }
+  collectWizardStep(wizardState.step);
+  if (wizardState.step < 7) { updateWizardStep(wizardState.step + 1); return; }
   const btn = document.getElementById('wizard-next');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Speichern…';
   try {
-    await apiPost('api/settings', state.wizardData);
-    state.settings = state.wizardData;
+    await apiPost('api/settings', wizardState.data);
+    planState.settings = wizardState.data;
     document.getElementById('wizard').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     const { appendMsg } = await import('./chat.js');
@@ -43,23 +43,23 @@ export async function wizardNext() {
 }
 
 export function collectWizardStep(step) {
-  if (step === 1) state.wizardData.persons = parseInt(document.getElementById('persons-display').textContent);
-  else if (step === 2) state.wizardData.diet_types = [...document.querySelectorAll('#diet-chips .chip.active')].map(c => c.dataset.value);
-  else if (step === 5) state.wizardData.max_cooking_time = parseInt(document.querySelector('#time-options .option-btn.active')?.dataset.value || 30);
-  else if (step === 6) state.wizardData.budget = document.querySelector('#budget-options .option-btn.active')?.dataset.value || 'mittel';
-  else if (step === 7) state.wizardData.likes_spicy = document.querySelector('#spicy-options .option-btn.active')?.dataset.value === 'true';
+  if (step === 1) wizardState.data.persons = parseInt(document.getElementById('persons-display').textContent);
+  else if (step === 2) wizardState.data.diet_types = [...document.querySelectorAll('#diet-chips .chip.active')].map(c => c.dataset.value);
+  else if (step === 5) wizardState.data.max_cooking_time = parseInt(document.querySelector('#time-options .option-btn.active')?.dataset.value || 30);
+  else if (step === 6) wizardState.data.budget = document.querySelector('#budget-options .option-btn.active')?.dataset.value || 'mittel';
+  else if (step === 7) wizardState.data.likes_spicy = document.querySelector('#spicy-options .option-btn.active')?.dataset.value === 'true';
 }
 
 export function adjustPersons(d) {
   const el = document.getElementById('persons-display');
   el.textContent = Math.max(1, Math.min(10, parseInt(el.textContent) + d));
-  state.wizardData.persons = parseInt(el.textContent);
+  wizardState.data.persons = parseInt(el.textContent);
 }
 
 // ── Settings Modal ────────────────────────────────────────────────
 
 export function openSettings() {
-  const s = state.settings || {};
+  const s = planState.settings || {};
   document.getElementById('settings-persons-display').textContent = s.persons || 2;
   document.querySelectorAll('#settings-diet-chips .chip').forEach(c =>
     c.classList.toggle('active', (s.diet_types || []).includes(c.dataset.value))
@@ -95,7 +95,7 @@ export async function saveSettings() {
     budget: document.querySelector('#settings-budget-options .option-btn.active')?.dataset.value || 'mittel',
     likes_spicy: document.querySelector('#settings-spicy-options .option-btn.active')?.dataset.value === 'true',
   }).catch(() => null);
-  if (saved) { state.settings = saved; closeSettings(); showToast('Einstellungen gespeichert!', 'success'); }
+  if (saved) { planState.settings = saved; closeSettings(); showToast('Einstellungen gespeichert!', 'success'); }
   else showToast('Fehler beim Speichern.', 'error');
 }
 
@@ -110,8 +110,8 @@ export function addTag(prefix) {
   if (!tagValues[prefix]) tagValues[prefix] = [];
   if (!tagValues[prefix].some(v => v.toLowerCase() === raw.toLowerCase())) {
     tagValues[prefix].push(raw);
-    if (prefix === 'disliked') state.wizardData.disliked_foods = tagValues[prefix];
-    if (prefix === 'favorite') state.wizardData.favorite_foods = tagValues[prefix];
+    if (prefix === 'disliked') wizardState.data.disliked_foods = tagValues[prefix];
+    if (prefix === 'favorite') wizardState.data.favorite_foods = tagValues[prefix];
     renderTagList(prefix, tagValues[prefix]);
   }
   input.value = '';
@@ -119,8 +119,8 @@ export function addTag(prefix) {
 
 export function removeTag(prefix, val) {
   tagValues[prefix] = (tagValues[prefix] || []).filter(v => v !== val);
-  if (prefix === 'disliked') state.wizardData.disliked_foods = tagValues[prefix];
-  if (prefix === 'favorite') state.wizardData.favorite_foods = tagValues[prefix];
+  if (prefix === 'disliked') wizardState.data.disliked_foods = tagValues[prefix];
+  if (prefix === 'favorite') wizardState.data.favorite_foods = tagValues[prefix];
   renderTagList(prefix, tagValues[prefix]);
 }
 

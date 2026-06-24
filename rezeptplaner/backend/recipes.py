@@ -5,19 +5,25 @@ from datetime import date, timedelta
 from .ai_client import get_client
 from .config import AppConfig, load
 from .models import Meal, Recipe, Settings, WeekPlan
-from .nutrition import enrich_nutrition
+from .nutrition import NutritionClient
 from .prompt_builder import MEAL_SLOTS, PromptBuilder
 
 logger = logging.getLogger(__name__)
 
 
 class PlannerAI:
-    def __init__(self, cfg: AppConfig | None = None) -> None:
+    def __init__(self, cfg: AppConfig | None = None, nutrition: NutritionClient | None = None) -> None:
         self._cfg = cfg or load()
         self._prompts = PromptBuilder()
+        self._nutrition = nutrition or NutritionClient(api_key=self._cfg.usda_api_key)
 
     def _client(self) -> tuple:
         return get_client(self._cfg)
+
+    async def _enrich(self, recipe: Recipe) -> None:
+        nutrition = await self._nutrition.enrich(recipe)
+        if nutrition:
+            recipe.nutrition_per_serving = nutrition
 
     async def generate_plan(
         self,
@@ -44,7 +50,7 @@ class PlannerAI:
             for m in data["meals"]
         ]
         for m in meals:
-            await enrich_nutrition(m.recipe, self._cfg.usda_api_key)
+            await self._enrich(m.recipe)
         today = date.today()
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
@@ -67,7 +73,7 @@ class PlannerAI:
             temperature=0.95,
         )
         recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
-        await enrich_nutrition(recipe, self._cfg.usda_api_key)
+        await self._enrich(recipe)
         return recipe
 
     async def replace_meal(
@@ -95,7 +101,7 @@ class PlannerAI:
             temperature=0.95,
         )
         recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
-        await enrich_nutrition(recipe, self._cfg.usda_api_key)
+        await self._enrich(recipe)
         return recipe
 
     async def chat(

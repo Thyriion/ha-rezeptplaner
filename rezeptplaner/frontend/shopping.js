@@ -1,22 +1,22 @@
 'use strict';
 
 import { apiGet, apiPost } from './api.js';
-import { CAT_ICONS, state } from './state.js';
+import { CAT_ICONS, planState } from './state.js';
 import { showToast } from './app.js';
 import { navigatePlan } from './plan.js';
 
 export function updateShoppingNav() {
   const nav = document.getElementById('shopping-nav');
   if (!nav) return;
-  if (state.allPlans.length === 0) { nav.classList.add('hidden'); return; }
+  if (planState.allPlans.length === 0) { nav.classList.add('hidden'); return; }
   nav.classList.remove('hidden');
-  const meta = state.allPlans[state.currentPlanIdx];
+  const meta = planState.allPlans[planState.currentPlanIdx];
   const d = new Date(meta.week_start + 'T00:00:00');
   const end = new Date(d); end.setDate(d.getDate() + 6);
   const fmt = dt => dt.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
   document.getElementById('shopping-nav-label').textContent = `${fmt(d)} – ${fmt(end)}`;
-  document.getElementById('shopping-nav-prev').disabled = state.currentPlanIdx >= state.allPlans.length - 1;
-  document.getElementById('shopping-nav-next').disabled = state.currentPlanIdx <= 0;
+  document.getElementById('shopping-nav-prev').disabled = planState.currentPlanIdx >= planState.allPlans.length - 1;
+  document.getElementById('shopping-nav-next').disabled = planState.currentPlanIdx <= 0;
 }
 
 export async function navigateShopping(dir) {
@@ -27,7 +27,7 @@ export async function navigateShopping(dir) {
 export async function loadShopping() {
   updateShoppingNav();
   const container = document.getElementById('shopping-content');
-  const planId = state.plan?.id;
+  const planId = planState.plan?.id;
   try {
     const url = planId ? `api/shopping-list?plan_id=${planId}` : 'api/shopping-list';
     renderShopping(await apiGet(url), container);
@@ -68,7 +68,7 @@ export function toggleCheck(el) {
 }
 
 export async function pushToHA() {
-  const planId = state.plan?.id;
+  const planId = planState.plan?.id;
   try {
     const url = planId ? `api/shopping-list/push-to-ha?plan_id=${planId}` : 'api/shopping-list/push-to-ha';
     const res = await apiPost(url, {});
