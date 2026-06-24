@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import date, timedelta
@@ -49,8 +50,7 @@ class PlannerAI:
             Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
             for m in data["meals"]
         ]
-        for m in meals:
-            await self._enrich(m.recipe)
+        await asyncio.gather(*[self._enrich(m.recipe) for m in meals])
         today = date.today()
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)

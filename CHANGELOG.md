@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 – 2026-06-24
+
+### Performance
+- **USDA-Lookups parallel**: Nährwert-Anfragen pro Rezept und über alle Mahlzeiten eines Plans laufen jetzt gleichzeitig statt nacheinander. Bei einem 9-Mahlzeiten-Plan mit je ~5 Zutaten reduziert sich die Wartezeit von ~45 sequenziellen HTTP-Requests auf einen einzigen parallelen Batch.
+
+---
+
 ## 0.8.0 – 2026-06-24
 
 ### Architektur-Refactoring

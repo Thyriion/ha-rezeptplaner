@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import httpx
@@ -32,16 +33,22 @@ class NutritionClient:
 
     async def enrich(self, recipe: Recipe) -> NutritionInfo | None:
         """Return NutritionInfo from USDA data, or None if insufficient data found."""
+        candidates = [
+            (ing, _to_grams(ing.amount, ing.unit))
+            for ing in recipe.ingredients
+            if ing.name_en
+        ]
+        candidates = [(ing, g) for ing, g in candidates if g is not None]
+        if not candidates:
+            return None
+
+        results = await asyncio.gather(
+            *[self._per_100g(ing.name_en) for ing, _ in candidates]
+        )
+
         totals = {"calories": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
         found_any = False
-
-        for ing in recipe.ingredients:
-            if not ing.name_en:
-                continue
-            grams = _to_grams(ing.amount, ing.unit)
-            if grams is None:
-                continue
-            per_100g = await self._per_100g(ing.name_en)
+        for (ing, grams), per_100g in zip(candidates, results):
             if per_100g is None:
                 continue
             found_any = True
