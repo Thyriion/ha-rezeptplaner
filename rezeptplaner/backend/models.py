@@ -1,3 +1,5 @@
+from enum import Enum
+
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -43,6 +45,8 @@ class Meal(BaseModel):
     recipe: Recipe
     confirmed: bool = False
     rating: Optional[int] = None
+    is_leftovers: bool = False
+    source_recipe_name: Optional[str] = None
 
 
 class WeekPlan(BaseModel):
@@ -109,3 +113,19 @@ class ShoppingList(BaseModel):
 class ConnectionTestResponse(BaseModel):
     success: bool
     message: str
+
+
+class SlotMode(str, Enum):
+    normal = "normal"
+    skip = "skip"
+    leftovers = "leftovers"
+
+
+class SlotConfig(BaseModel):
+    day: str
+    meal_type: str
+    mode: SlotMode = SlotMode.normal
+
+
+class GeneratePlanRequest(BaseModel):
+    slots: List[SlotConfig] = []

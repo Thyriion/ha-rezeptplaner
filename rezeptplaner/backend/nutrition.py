@@ -46,16 +46,14 @@ async def _usda_per_100g(name_en: str, api_key: str) -> dict | None:
                 _cache[name_en] = None
                 return None
             nutrients = {n["nutrientName"]: n["value"] for n in foods[0]["foodNutrients"]}
+            protein = nutrients.get("Protein") or 0
+            carbs = nutrients.get("Carbohydrate, by difference") or 0
+            fat = nutrients.get("Total lipid (fat)") or 0
             result = {
-                "calories": (
-                    nutrients.get("Energy (Atwater General Factors)")
-                    or nutrients.get("Energy (Atwater Specific Factors)")
-                    or nutrients.get("Energy")
-                    or 0
-                ),
-                "protein_g": nutrients.get("Protein") or 0,
-                "carbs_g": nutrients.get("Carbohydrate, by difference") or 0,
-                "fat_g": nutrients.get("Total lipid (fat)") or 0,
+                "calories": protein * 4 + carbs * 4 + fat * 9,
+                "protein_g": protein,
+                "carbs_g": carbs,
+                "fat_g": fat,
             }
             _cache[name_en] = result
             return result

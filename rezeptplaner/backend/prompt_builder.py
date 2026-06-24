@@ -135,9 +135,14 @@ Regeln:
 - Berücksichtige die Präferenzen aus dem System-Prompt
 """
 
-    def swap(self, old_name: str, reason: str, day: str, meal_type: str, persons: int) -> str:
+    def swap(self, old_name: str, reason: str, day: str, meal_type: str, persons: int,
+             current_recipe_names: list[str] | None = None) -> str:
         reason_de = _REASON_DE.get(reason, reason)
         cat_list = ", ".join(CATEGORIES)
+        already_planned = ""
+        if current_recipe_names:
+            names = ", ".join(f'"{n}"' for n in current_recipe_names)
+            already_planned = f"\n- Diese Gerichte sind bereits diese Woche eingeplant — NICHT vorschlagen: {names}"
         return f"""Ersetze das Gericht "{old_name}" für {_DAY_DE[day]} ({_MEAL_DE[meal_type]}).
 Grund: {reason_de}
 
@@ -149,7 +154,7 @@ Regeln:
 - "category" bei Zutaten: {cat_list}
 - Beachte die Ernährungsform und die Präferenzen aus dem System-Prompt
 - Alle Texte auf Deutsch
-- Der "name" darf KEINE Klammern, Ersatz-Hinweise oder Bezüge auf das Originalgericht enthalten — nur der saubere Rezeptname
+- Der "name" darf KEINE Klammern, Ersatz-Hinweise oder Bezüge auf das Originalgericht enthalten — nur der saubere Rezeptname{already_planned}
 """
 
     def chat(self, message: str) -> str:

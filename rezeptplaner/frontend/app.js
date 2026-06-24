@@ -15,7 +15,8 @@ import { openCooking, closeCooking, cookingPrev, cookingNext,
 import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
 import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          appendMsg, openAddToPlanModal, closeAddToPlanModal,
-         confirmAddToPlan, checkAddToPlanReady } from './chat.js';
+         confirmAddToPlan, checkAddToPlanReady,
+         openSlotModal, closeSlotModal, setSlotMode, confirmSlotConfig } from './chat.js';
 import { showWizard, updateWizardStep, wizardBack, wizardNext, adjustPersons,
          openSettings, closeSettings, saveSettings, adjustSettingsPersons,
          addTag, removeTag, tagKeydown } from './settings.js';
@@ -73,6 +74,8 @@ Object.assign(window, {
   // chat
   sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
   openAddToPlanModal, closeAddToPlanModal, confirmAddToPlan,
+  // slot modal
+  openSlotModal, closeSlotModal, setSlotMode, confirmSlotConfig,
   // settings
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,

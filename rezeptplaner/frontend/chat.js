@@ -1,7 +1,7 @@
 'use strict';
 
 import { apiPost } from './api.js';
-import { state } from './state.js';
+import { state, DAY_LABELS, MEAL_LABELS } from './state.js';
 import { showToast, switchTab } from './app.js';
 import { loadAllPlans, renderPlan, updatePlanNav } from './plan.js';
 
@@ -20,13 +20,79 @@ export async function sendChat() {
   await _doChat({ message: msg });
 }
 
+// ── Slot Config Modal ──────────────────────────────────────────
+
+const _ALL_SLOTS = [
+  { day: 'monday',    meal_type: 'dinner' },
+  { day: 'tuesday',   meal_type: 'dinner' },
+  { day: 'wednesday', meal_type: 'dinner' },
+  { day: 'thursday',  meal_type: 'dinner' },
+  { day: 'friday',    meal_type: 'dinner' },
+  { day: 'saturday',  meal_type: 'lunch'  },
+  { day: 'saturday',  meal_type: 'dinner' },
+  { day: 'sunday',    meal_type: 'lunch'  },
+  { day: 'sunday',    meal_type: 'dinner' },
+];
+const _slotModes = {};
+
+export function openSlotModal() {
+  _ALL_SLOTS.forEach(s => { _slotModes[`${s.day}:${s.meal_type}`] = 'normal'; });
+  _renderSlotList();
+  document.getElementById('slot-modal').classList.remove('hidden');
+}
+
+export function closeSlotModal() {
+  document.getElementById('slot-modal').classList.add('hidden');
+}
+
+export function setSlotMode(day, mealType, mode) {
+  _slotModes[`${day}:${mealType}`] = mode;
+  _renderSlotList();
+}
+
+function _renderSlotList() {
+  const list = document.getElementById('slot-list');
+  list.innerHTML = _ALL_SLOTS.map((s, idx) => {
+    const key = `${s.day}:${s.meal_type}`;
+    const mode = _slotModes[key] || 'normal';
+    const hasPrev = _ALL_SLOTS.slice(0, idx).some(p => (_slotModes[`${p.day}:${p.meal_type}`] || 'normal') === 'normal');
+    const btn = (m, label) =>
+      `<button class="slot-mode-btn ${mode === m ? 'active' : ''}" onclick="setSlotMode('${s.day}','${s.meal_type}','${m}')">${label}</button>`;
+    const leftoverBtn = hasPrev
+      ? btn('leftovers', '↩ Reste')
+      : `<button class="slot-mode-btn" disabled>↩ Reste</button>`;
+    return `<div class="slot-row">
+      <span class="slot-label">${DAY_LABELS[s.day]}, ${MEAL_LABELS[s.meal_type]}</span>
+      <div class="slot-mode-btns">
+        ${btn('normal', '✓ Normal')}
+        ${btn('skip', '✕ Auslassen')}
+        ${leftoverBtn}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+export async function confirmSlotConfig() {
+  closeSlotModal();
+  const slots = _ALL_SLOTS.map(s => ({
+    day: s.day,
+    meal_type: s.meal_type,
+    mode: _slotModes[`${s.day}:${s.meal_type}`] || 'normal',
+  }));
+  await _doGeneratePlan(slots);
+}
+
 export async function quickGeneratePlan() {
+  openSlotModal();
+}
+
+async function _doGeneratePlan(slots) {
   const btn = document.getElementById('btn-gen-plan');
   btn.disabled = true;
   appendMsg('user', 'Wochenplan generieren');
   const typing = appendMsg('assistant', '', true);
   try {
-    const res = await apiPost('api/plan/generate', {});
+    const res = await apiPost('api/plan/generate', { slots });
     typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
     if (res.plan) await _onNewPlan(res.plan);

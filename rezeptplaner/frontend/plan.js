@@ -78,6 +78,15 @@ export function renderPlan() {
 }
 
 export function renderMealCard(meal, isConfirmed) {
+  if (meal.is_leftovers) {
+    return `<div class="plan-meal leftovers-meal" id="meal-${meal.id}">
+      <div class="plan-meal-header">
+        <span class="meal-type-badge">${MEAL_LABELS[meal.meal_type]}</span>
+        <span class="meal-name">↩ Reste</span>
+        <span class="leftovers-badge">${meal.source_recipe_name}</span>
+      </div>
+    </div>`;
+  }
   const r = meal.recipe, n = r.nutrition_per_serving;
   const disabled = (isConfirmed || meal.confirmed) ? 'disabled' : '';
   const amt = i => `${i.amount === Math.floor(i.amount) ? Math.floor(i.amount) : i.amount} ${i.unit}`;

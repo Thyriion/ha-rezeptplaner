@@ -18,6 +18,7 @@ from .models import (
     ChatRequest,
     ChatResponse,
     ConnectionTestResponse,
+    GeneratePlanRequest,
     Meal,
     PlanMeta,
     RatingRequest,
@@ -101,8 +102,9 @@ async def get_plan_by_id(plan_id: int):
 
 
 @app.post("/api/plan/generate", response_model=ChatResponse)
-async def generate_plan():
-    reply, new_plan = await _service.generate_plan()
+async def generate_plan(req: GeneratePlanRequest = GeneratePlanRequest()):
+    slot_configs = req.slots if req.slots else None
+    reply, new_plan = await _service.generate_plan(slot_configs)
     return ChatResponse(reply=reply, plan=new_plan)
 
 

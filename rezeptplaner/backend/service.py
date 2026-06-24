@@ -22,7 +22,8 @@ from .database import (
     save_settings,
     update_meal,
 )
-from .models import Meal, PlanMeta, Recipe, Settings, WeekPlan
+from .models import Meal, PlanMeta, Recipe, Settings, SlotConfig, WeekPlan
+from .prompt_builder import MEAL_SLOTS
 from .recipes import PlannerAI
 
 
@@ -87,12 +88,45 @@ class PlanService:
             return reply, None
         return await self._generate_and_save_plan()
 
-    async def generate_plan(self) -> tuple[str, WeekPlan]:
-        return await self._generate_and_save_plan()
+    async def generate_plan(self, slot_configs: list[SlotConfig] | None = None) -> tuple[str, WeekPlan]:
+        return await self._generate_and_save_plan(slot_configs)
 
-    async def _generate_and_save_plan(self) -> tuple[str, WeekPlan]:
+    async def _generate_and_save_plan(self, slot_configs: list[SlotConfig] | None = None) -> tuple[str, WeekPlan]:
         settings, recent_swaps, ratings, recent_names = await self._context()
-        new_plan = await self._planner.generate_plan(settings, recent_swaps, ratings, recent_names)
+
+        if slot_configs:
+            slot_modes = {(s.day, s.meal_type): s.mode for s in slot_configs}
+            normal_slots = [(s.day, s.meal_type) for s in slot_configs if s.mode == "normal"]
+        else:
+            slot_modes = {}
+            normal_slots = list(MEAL_SLOTS)
+
+        new_plan = await self._planner.generate_plan(
+            settings, recent_swaps, ratings, recent_names,
+            slots=normal_slots if slot_configs else None,
+        )
+
+        # Insert leftovers meals after normal slot meals
+        recipe_by_slot = {(m.day, m.meal_type): m.recipe for m in new_plan.meals}
+        for i, slot in enumerate(MEAL_SLOTS):
+            if slot_modes.get(slot, "normal") != "leftovers":
+                continue
+            source_recipe = None
+            for prev in reversed(MEAL_SLOTS[:i]):
+                if slot_modes.get(prev, "normal") == "normal":
+                    source_recipe = recipe_by_slot.get(prev)
+                    break
+            if source_recipe is None:
+                continue
+            day, meal_type = slot
+            new_plan.meals.append(Meal(
+                day=day, meal_type=meal_type, recipe=source_recipe,
+                is_leftovers=True, source_recipe_name=source_recipe.name,
+            ))
+
+        # Sort by MEAL_SLOTS order
+        slot_order = {slot: i for i, slot in enumerate(MEAL_SLOTS)}
+        new_plan.meals.sort(key=lambda m: slot_order.get((m.day, m.meal_type), 99))
 
         today = date.today()
         this_monday = today - timedelta(days=today.weekday())
@@ -108,11 +142,15 @@ class PlanService:
         for meal, mid in zip(new_plan.meals, meal_ids):
             meal.id = mid
         new_plan.id = plan_id
-        highlights = ", ".join(m.recipe.name for m in new_plan.meals[:3])
+
+        normal_meals = [m for m in new_plan.meals if not m.is_leftovers]
+        highlights = ", ".join(m.recipe.name for m in normal_meals[:3])
+        extra = len(normal_meals) - 3
         reply = (
             f"Dein Wochenplan steht! "
-            f"Highlights: {highlights} – und 6 weitere Gerichte. "
-            f'Im Tab "Wochenplan" kannst du alles einsehen und einzelne Mahlzeiten tauschen.'
+            f"Highlights: {highlights}"
+            + (f" – und {extra} weitere Gerichte." if extra > 0 else ".")
+            + f' Im Tab "Wochenplan" kannst du alles einsehen und einzelne Mahlzeiten tauschen.'
         )
         return reply, new_plan
 
@@ -137,6 +175,11 @@ class PlanService:
         meal = await get_meal_by_id(meal_id)
         if not meal:
             raise LookupError("Mahlzeit nicht gefunden")
+        current_plan = await get_current_plan()
+        current_names = [
+            m.recipe.name for m in (current_plan.meals if current_plan else [])
+            if m.id != meal_id and not m.is_leftovers
+        ]
         settings, recent_swaps, ratings, _ = await self._context()
         new_recipe = await self._planner.replace_meal(
             old_recipe_name=meal.recipe.name,
@@ -146,6 +189,7 @@ class PlanService:
             settings=settings,
             recent_swaps=recent_swaps,
             ratings=ratings,
+            current_recipe_names=current_names or None,
         )
         await record_swap(meal_id, meal.recipe.name, reason)
         await update_meal(meal_id, new_recipe)

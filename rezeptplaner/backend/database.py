@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS user_recipes (
 
 _MIGRATIONS = [
     "ALTER TABLE swaps ADD COLUMN recipe_name TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE meals ADD COLUMN is_leftovers INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE meals ADD COLUMN source_recipe_name TEXT",
 ]
 
 
@@ -118,6 +120,8 @@ def _meals_from_rows(meal_rows) -> list[Meal]:
             meal_type=r[2],
             recipe=Recipe.model_validate_json(r[3]),
             confirmed=bool(r[4]),
+            is_leftovers=bool(r[5]),
+            source_recipe_name=r[6],
         )
         for r in meal_rows
     ]
@@ -132,7 +136,7 @@ async def get_plan_by_id(plan_id: int) -> WeekPlan | None:
         if not row:
             return None
         async with db.execute(
-            "SELECT id, day, meal_type, recipe_json, confirmed FROM meals WHERE plan_id = ?",
+            "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name FROM meals WHERE plan_id = ?",
             (plan_id,),
         ) as cur:
             meal_rows = await cur.fetchall()
@@ -155,8 +159,8 @@ async def save_meals(plan_id: int, meals: list[Meal]) -> list[int]:
     async with aiosqlite.connect(DB_PATH) as db:
         for meal in meals:
             cur = await db.execute(
-                "INSERT INTO meals (plan_id, day, meal_type, recipe_json) VALUES (?, ?, ?, ?)",
-                (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json()),
+                "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name) VALUES (?, ?, ?, ?, ?, ?)",
+                (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json(), int(meal.is_leftovers), meal.source_recipe_name),
             )
             ids.append(cur.lastrowid)
         await db.commit()
@@ -166,8 +170,8 @@ async def save_meals(plan_id: int, meals: list[Meal]) -> list[int]:
 async def add_meal_to_plan(plan_id: int, meal: Meal) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         cur = await db.execute(
-            "INSERT INTO meals (plan_id, day, meal_type, recipe_json) VALUES (?, ?, ?, ?)",
-            (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json()),
+            "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name) VALUES (?, ?, ?, ?, ?, ?)",
+            (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json(), int(meal.is_leftovers), meal.source_recipe_name),
         )
         await db.commit()
         return cur.lastrowid
@@ -184,7 +188,7 @@ async def confirm_plan(plan_id: int) -> None:
 async def get_meal_by_id(meal_id: int) -> Meal | None:
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
-            "SELECT id, day, meal_type, recipe_json, confirmed FROM meals WHERE id = ?",
+            "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name FROM meals WHERE id = ?",
             (meal_id,),
         ) as cur:
             row = await cur.fetchone()
@@ -194,6 +198,8 @@ async def get_meal_by_id(meal_id: int) -> Meal | None:
         id=row[0], day=row[1], meal_type=row[2],
         recipe=Recipe.model_validate_json(row[3]),
         confirmed=bool(row[4]),
+        is_leftovers=bool(row[5]),
+        source_recipe_name=row[6],
     )
 
 

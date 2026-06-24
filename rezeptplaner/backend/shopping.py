@@ -5,6 +5,24 @@ from .database import get_current_plan, get_plan_by_id
 from .ha_client import HAClient
 from .models import ShoppingItem, ShoppingList
 
+_UNIT_ALIASES: dict[str, str] = {
+    "stk": "stück", "stk.": "stück", "st": "stück", "st.": "stück", "stück": "stück",
+    "el": "el", "esslöffel": "el", "tbsp": "el",
+    "tl": "tl", "teelöffel": "tl", "tsp": "tl",
+    "g": "g", "gr": "g", "gram": "g", "gramm": "g",
+    "kg": "kg", "kilogramm": "kg",
+    "ml": "ml", "milliliter": "ml", "millilitre": "ml",
+    "l": "l", "liter": "l", "litre": "l",
+    "prise": "prise", "pinch": "prise",
+    "zehe": "zehe", "zehen": "zehe",
+    "bund": "bund", "scheibe": "scheibe", "scheiben": "scheibe",
+    "dose": "dose", "dosen": "dose", "glas": "glas",
+}
+
+
+def _norm_unit(unit: str) -> str:
+    return _UNIT_ALIASES.get(unit.lower().strip(), unit.lower().strip())
+
 
 def _fmt(amount: float, unit: str) -> str:
     n = int(amount) if amount == int(amount) else amount
@@ -19,7 +37,7 @@ async def build_shopping_list(plan_id: int | None = None) -> ShoppingList:
     aggregated: dict[tuple[str, str], ShoppingItem] = {}
     for meal in plan.meals:
         for ing in meal.recipe.ingredients:
-            key = (ing.name.lower(), ing.unit.lower())
+            key = (ing.name.lower(), _norm_unit(ing.unit))
             if key in aggregated:
                 aggregated[key].amount += ing.amount
             else:

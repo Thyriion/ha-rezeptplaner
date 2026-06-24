@@ -1039,3 +1039,33 @@ body {
   flex-shrink: 0;
 }
 .remove-btn:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
+
+/* ── Slot Config Modal ───────────────────────────────────────── */
+.slot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.slot-row:last-child { border-bottom: none; }
+.slot-label { font-size: 0.9rem; color: var(--text); min-width: 150px; }
+.slot-mode-btns { display: flex; gap: 5px; }
+.slot-mode-btn {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.slot-mode-btn.active { border-color: var(--primary); background: var(--primary-bg); color: var(--primary-hi); }
+.slot-mode-btn:hover:not(.active):not(:disabled) { border-color: var(--border); background: var(--surface-3); color: var(--text); }
+.slot-mode-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Leftovers Meal Card ─────────────────────────────────────── */
+.plan-meal.leftovers-meal .plan-meal-header { opacity: 0.75; }
+.leftovers-badge { font-size: 0.78rem; color: var(--text-dim); margin-left: 6px; }

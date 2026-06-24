@@ -25,13 +25,15 @@ class PlannerAI:
         recent_swaps: list[dict],
         ratings: dict[str, int] | None = None,
         recent_recipe_names: list[str] | None = None,
+        slots: list[tuple[str, str]] | None = None,
     ) -> WeekPlan:
+        effective_slots = slots if slots is not None else MEAL_SLOTS
         client, model = self._client()
         response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings, recent_recipe_names)},
-                {"role": "user", "content": self._prompts.plan(MEAL_SLOTS, settings.persons)},
+                {"role": "user", "content": self._prompts.plan(effective_slots, settings.persons)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
@@ -77,13 +79,17 @@ class PlannerAI:
         settings: Settings,
         recent_swaps: list[dict],
         ratings: dict[str, int] | None = None,
+        current_recipe_names: list[str] | None = None,
     ) -> Recipe:
         client, model = self._client()
         response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings)},
-                {"role": "user", "content": self._prompts.swap(old_recipe_name, reason, day, meal_type, settings.persons)},
+                {"role": "user", "content": self._prompts.swap(
+                    old_recipe_name, reason, day, meal_type, settings.persons,
+                    current_recipe_names=current_recipe_names,
+                )},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
