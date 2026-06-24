@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import date, timedelta
 
 from .ai_client import get_client
@@ -10,6 +11,13 @@ from .nutrition import NutritionClient
 from .prompt_builder import MEAL_SLOTS, PromptBuilder
 
 logger = logging.getLogger(__name__)
+
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _parse_json(content: str) -> dict:
+    clean = _THINK_RE.sub("", content).strip()
+    return json.loads(clean)
 
 
 class PlannerAI:
@@ -45,7 +53,9 @@ class PlannerAI:
             response_format={"type": "json_object"},
             temperature=0.95,
         )
-        data = json.loads(response.choices[0].message.content)
+        raw = response.choices[0].message.content or ""
+        logger.debug("generate_plan raw response: %s", raw[:500])
+        data = _parse_json(raw)
         meals = [
             Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
             for m in data["meals"]
@@ -72,7 +82,9 @@ class PlannerAI:
             response_format={"type": "json_object"},
             temperature=0.95,
         )
-        recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
+        raw = response.choices[0].message.content or ""
+        logger.debug("generate_single_recipe raw response: %s", raw[:500])
+        recipe = Recipe.model_validate(_parse_json(raw))
         await self._enrich(recipe)
         return recipe
 
@@ -100,7 +112,9 @@ class PlannerAI:
             response_format={"type": "json_object"},
             temperature=0.95,
         )
-        recipe = Recipe.model_validate(json.loads(response.choices[0].message.content))
+        raw = response.choices[0].message.content or ""
+        logger.debug("replace_meal raw response: %s", raw[:500])
+        recipe = Recipe.model_validate(_parse_json(raw))
         await self._enrich(recipe)
         return recipe
 
@@ -129,5 +143,7 @@ class PlannerAI:
             response_format={"type": "json_object"},
             temperature=0.7,
         )
-        data = json.loads(response.choices[0].message.content)
+        raw = response.choices[0].message.content or ""
+        logger.debug("chat raw response: %s", raw[:500])
+        data = _parse_json(raw)
         return data.get("reply", ""), bool(data.get("wants_plan", False))

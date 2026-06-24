@@ -1,7 +1,10 @@
+import logging
 import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+
+logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 
 from .ai_client import test_connection as ai_test_connection
@@ -74,8 +77,12 @@ async def test_connection_endpoint():
 
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    reply, new_plan = await _service.handle_chat(req.message)
-    return ChatResponse(reply=reply, plan=new_plan)
+    try:
+        reply, new_plan = await _service.handle_chat(req.message)
+        return ChatResponse(reply=reply, plan=new_plan)
+    except Exception as e:
+        logger.exception("Chat-Fehler")
+        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
 
 
 # --- Week Plans ---
@@ -101,8 +108,12 @@ async def get_plan_by_id(plan_id: int):
 @app.post("/api/plan/generate", response_model=ChatResponse)
 async def generate_plan(req: GeneratePlanRequest = GeneratePlanRequest()):
     slot_configs = req.slots if req.slots else None
-    reply, new_plan = await _service.generate_plan(slot_configs)
-    return ChatResponse(reply=reply, plan=new_plan)
+    try:
+        reply, new_plan = await _service.generate_plan(slot_configs)
+        return ChatResponse(reply=reply, plan=new_plan)
+    except Exception as e:
+        logger.exception("Plan-Generierung fehlgeschlagen")
+        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
 
 
 @app.post("/api/plan/confirm")
@@ -140,7 +151,11 @@ async def add_recipe_to_plan(req: AddRecipeRequest):
 
 @app.post("/api/recipe/single")
 async def get_single_recipe():
-    return await _service.generate_single_recipe()
+    try:
+        return await _service.generate_single_recipe()
+    except Exception as e:
+        logger.exception("Einzelrezept-Generierung fehlgeschlagen")
+        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
 
 
 # --- Ratings ---

@@ -5,6 +5,17 @@ import { planState, recipeState, DAY_LABELS, MEAL_LABELS } from './state.js';
 import { showToast, switchTab } from './app.js';
 import { loadAllPlans, renderPlan, updatePlanNav } from './plan.js';
 
+// ── Helpers ───────────────────────────────────────────────────────
+
+function _extractError(e) {
+  try {
+    const data = JSON.parse(e.message);
+    return data.detail ?? e.message;
+  } catch {
+    return e.message;
+  }
+}
+
 // ── Chat ──────────────────────────────────────────────────────────
 
 export function chatKeydown(e) {
@@ -96,9 +107,9 @@ async function _doGeneratePlan(slots) {
     typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
     if (res.plan) await _onNewPlan(res.plan);
-  } catch {
+  } catch(e) {
     typing.remove();
-    appendMsg('assistant', 'Fehler beim Generieren. Bitte prüfe die KI-Konfiguration.');
+    appendMsg('assistant', `Fehler beim Generieren: ${_extractError(e)}`);
   } finally { btn.disabled = false; }
 }
 
@@ -112,9 +123,9 @@ export async function quickSingleRecipe() {
     typing.remove();
     recipeState.pending = recipe;
     appendSingleRecipeMsg(recipe);
-  } catch {
+  } catch(e) {
     typing.remove();
-    appendMsg('assistant', 'Fehler beim Generieren. Bitte prüfe die KI-Konfiguration.');
+    appendMsg('assistant', `Fehler beim Generieren: ${_extractError(e)}`);
   } finally { btn.disabled = false; }
 }
 
@@ -147,9 +158,9 @@ async function _doChat(body) {
     typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
     if (res.plan) await _onNewPlan(res.plan);
-  } catch {
+  } catch(e) {
     typing.remove();
-    appendMsg('assistant', 'Fehler beim Senden. Bitte prüfe die KI-Konfiguration.');
+    appendMsg('assistant', `Fehler beim Senden: ${_extractError(e)}`);
   } finally { btn.disabled = false; input.disabled = false; input.focus(); }
 }
 

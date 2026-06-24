@@ -9,7 +9,11 @@ def get_client(cfg: AppConfig | None = None) -> tuple[AsyncOpenAI, str]:
     client = AsyncOpenAI(
         base_url=cfg.base_url,
         api_key=cfg.api_key or "no-key",  # Ollama braucht keinen Key
-        timeout=60.0,
+        timeout=120.0,
+        default_headers={
+            "HTTP-Referer": "https://github.com/Thyriion/ha-rezeptplaner",
+            "X-Title": "HA Rezeptplaner",
+        },
     )
     return client, cfg.model
 
