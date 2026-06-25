@@ -69,15 +69,45 @@ function renderStepIngredients() {
   }).join('');
 }
 
+const STOP_WORDS = new Set(['und', 'oder', 'mit', 'in', 'aus', 'von', 'zum', 'zur', 'ca', 'etwa', 'ungefähr', 'ggf', 'nach', 'geschmack', 'z', 'b', 'beispiel']);
+
 function getRelevantIngredients(stepText, allIngredients) {
   if (!stepText || !allIngredients?.length) return [];
-  const relevant = allIngredients.filter(ing => {
-    const name = ing.name.toLowerCase();
-    try {
-      return new RegExp(`\\b${escapeRegex(name)}\\b`, 'i').test(stepText);
-    } catch { return false; }
-  });
+  const lowerStep = stepText.toLowerCase();
+  const relevant = allIngredients.filter(ing => isIngredientInText(ing.name, lowerStep));
   return relevant.length > 0 ? relevant : allIngredients;
+}
+
+function isIngredientInText(ingredientName, lowerStepText) {
+  const cleaned = normalizeIngredientName(ingredientName);
+  if (!cleaned) return false;
+
+  // 1. Ganze bereinigte Zutat als Phrase mit Wortgrenzen suchen
+  try {
+    if (new RegExp(`\\b${escapeRegex(cleaned)}\\b`, 'i').test(lowerStepText)) return true;
+  } catch { /* ignore */ }
+
+  // 2. Einzelne signifikante Wörter prüfen (erlaubt Plural/Stammform)
+  const words = cleaned.split(/\s+/).filter(w => w.length > 3 && !STOP_WORDS.has(w));
+  for (const word of words) {
+    try {
+      if (new RegExp(`\\b${escapeRegex(word)}\\b`, 'i').test(lowerStepText)) return true;
+      // Für längere Wörter: Wortanfang im Text akzeptieren (Zwiebel -> Zwiebeln, Zwiebeln,)
+      if (word.length >= 5 && new RegExp(`\\b${escapeRegex(word)}`, 'i').test(lowerStepText)) return true;
+    } catch { /* ignore */ }
+  }
+  return false;
+}
+
+function normalizeIngredientName(name) {
+  return name
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\[.*?\]/g, ' ')
+    .replace(/,.*/g, ' ')
+    .replace(/\b(ca\.?|etwa|ungefähr|ggf\.?|nach geschmack|z\.b\.?|zum beispiel)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function escapeRegex(str) {
@@ -226,6 +256,7 @@ export function stopAlarm() {
   clearInterval(cooking.alarmInterval);
   cooking.alarmInterval = null;
   cooking.alarmKeys = [];
+  stopAlarmSound();
   renderStepTimers();
   renderTimerSidebar();
 }
@@ -341,6 +372,14 @@ function playTimerSound() {
     _duckAudio.currentTime = 0;
     _duckAudio.play();
   } catch { /* Audio nicht verfügbar */ }
+}
+
+function stopAlarmSound() {
+  if (!_duckAudio) return;
+  try {
+    _duckAudio.pause();
+    _duckAudio.currentTime = 0;
+  } catch { /* ignore */ }
 }
 
 async function requestWakeLock() {
