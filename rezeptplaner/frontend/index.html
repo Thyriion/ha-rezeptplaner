@@ -305,30 +305,23 @@
         <p class="cooking-recipe-label" id="cooking-recipe-label"></p>
         <div class="cooking-dots-row" id="cooking-dots"></div>
       </div>
-      <div class="cooking-header-actions">
-        <button id="cooking-stop-alarm" class="btn btn-danger btn-sm alarm-stop-btn hidden" onclick="stopCookingAlarm()">🔔 Alarm stoppen</button>
-        <button class="btn-icon cooking-close" onclick="closeCooking()">✕</button>
-      </div>
+      <button class="btn-icon cooking-close" onclick="closeCooking()">✕</button>
     </div>
 
-    <div class="cooking-body">
-      <div class="cooking-step-number" id="cooking-step-num">Schritt 1 / 5</div>
-      <p class="cooking-step-text" id="cooking-step-text"></p>
-      <div class="cooking-ingredients-wrap">
-        <p class="cooking-ingredients-label">Zutaten</p>
-        <div id="cooking-ingredients" class="cooking-ingredients"></div>
+    <div class="cooking-main">
+      <div class="cooking-sidebar">
+        <p class="cooking-sidebar-title">Timer</p>
+        <div id="cooking-timer-list" class="cooking-timer-list"></div>
       </div>
-    </div>
-
-    <div id="cooking-timer-section" class="cooking-timer hidden">
-      <div class="timer-ring">
-        <svg viewBox="0 0 100 100">
-          <circle class="timer-track" cx="50" cy="50" r="44"/>
-          <circle class="timer-progress" id="timer-circle" cx="50" cy="50" r="44"/>
-        </svg>
-        <span class="timer-digits" id="timer-digits">0:00</span>
+      <div class="cooking-body">
+        <div class="cooking-step-number" id="cooking-step-num">Schritt 1 / 5</div>
+        <p class="cooking-step-text" id="cooking-step-text"></p>
+        <div class="cooking-ingredients-wrap">
+          <p class="cooking-ingredients-label">Zutaten für diesen Schritt</p>
+          <div id="cooking-ingredients" class="cooking-ingredients"></div>
+        </div>
+        <div id="cooking-timer-section" class="cooking-timer hidden"></div>
       </div>
-      <button id="timer-btn" class="btn btn-primary" onclick="toggleCookingTimer()">▶ Timer starten</button>
     </div>
 
     <div class="cooking-nav">

@@ -462,10 +462,10 @@ body {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 560px;
+  max-width: 900px;
   margin: 0 auto;
   height: 100%;
-  padding: 20px 24px 32px;
+  padding: 16px 20px 24px;
 }
 
 .cooking-header {
@@ -476,15 +476,6 @@ body {
   flex-shrink: 0;
 }
 
-.cooking-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.alarm-stop-btn {
-  animation: alarm-pulse 0.6s ease-in-out infinite alternate;
-}
 .cooking-recipe-label {
   font-size: 0.8rem;
   font-weight: 700;
@@ -506,18 +497,117 @@ body {
 .cooking-close { color: var(--text-dim); font-size: 1.3rem; }
 .cooking-close:hover { color: var(--text); background: var(--surface-2); }
 
+.cooking-main {
+  flex: 1;
+  display: flex;
+  gap: 20px;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.cooking-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--surface-3);
+  padding-right: 16px;
+  overflow: hidden;
+}
+
+.cooking-sidebar-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.cooking-timer-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timer-list-empty {
+  font-size: 0.82rem;
+  color: var(--text-faint);
+}
+
+.timer-list-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+}
+.timer-list-item.running { border-color: var(--primary); }
+.timer-list-item.alarm {
+  border-color: var(--danger);
+  animation: alarm-pulse 0.6s ease-in-out infinite alternate;
+}
+
+.timer-list-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+.timer-list-step {
+  font-size: 0.68rem;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.timer-list-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+.timer-list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.timer-list-time {
+  font-size: 1.1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
 .cooking-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  padding: 20px 0;
+  justify-content: flex-start;
+  padding: 8px 0 16px;
   overflow-y: auto;
+  min-width: 0;
+}
+
+.cooking-step-number {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin-bottom: 16px;
+}
+.cooking-step-text {
+  font-size: 1.45rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 20px;
 }
 
 .cooking-ingredients-wrap {
-  margin-top: 24px;
-  padding-top: 16px;
+  padding: 16px 0;
   border-top: 1px solid var(--surface-3);
 }
 
@@ -546,71 +636,64 @@ body {
   border-radius: 20px;
   font-size: 0.84rem;
 }
-
 .cooking-ingredient span:last-child {
   color: var(--text-dim);
   font-weight: 600;
-}
-.cooking-step-number {
-  font-size: 0.82rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-faint);
-  margin-bottom: 20px;
-}
-.cooking-step-text {
-  font-size: 1.45rem;
-  font-weight: 500;
-  line-height: 1.5;
-  color: var(--text);
 }
 
 .cooking-timer {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 16px;
-  padding: 16px 0;
-  flex-shrink: 0;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-3);
 }
 .cooking-timer.hidden { display: none; }
 
-.timer-ring {
-  position: relative;
-  width: 130px;
-  height: 130px;
+.timer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px;
 }
-.timer-ring svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(-90deg);
+.timer-card.alarm {
+  border-color: var(--danger);
+  animation: alarm-pulse 0.6s ease-in-out infinite alternate;
 }
-.timer-track {
-  fill: none;
-  stroke: var(--surface-3);
-  stroke-width: 8;
-}
-.timer-progress {
-  fill: none;
-  stroke: var(--primary);
-  stroke-width: 8;
-  stroke-linecap: round;
-  stroke-dasharray: 276.46;
-  stroke-dashoffset: 0;
-  transition: stroke-dashoffset 1s linear;
-}
-.timer-digits {
-  position: absolute;
-  inset: 0;
+.timer-card-header {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.6rem;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.timer-card-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.timer-card-time {
+  font-size: 1.4rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+  white-space: nowrap;
 }
+.timer-card-bar {
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+.timer-card-progress {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 3px;
+  transition: width 1s linear;
+}
+.timer-card.alarm .timer-card-progress { background: var(--danger); }
 
 .alarm-active {
   background: var(--danger, #e53935) !important;
@@ -626,9 +709,39 @@ body {
   justify-content: space-between;
   gap: 12px;
   flex-shrink: 0;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 .cooking-nav .btn { flex: 1; justify-content: center; }
+
+@media (max-width: 640px) {
+  .cooking-container {
+    padding: 12px 14px 20px;
+    max-width: 100%;
+  }
+  .cooking-main {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .cooking-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--surface-3);
+    padding-right: 0;
+    padding-bottom: 12px;
+    max-height: 34vh;
+  }
+  .cooking-timer-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 10px;
+  }
+  .timer-list-item {
+    min-width: 160px;
+    flex-shrink: 0;
+  }
+  .cooking-step-text { font-size: 1.25rem; }
+  .timer-card-time { font-size: 1.2rem; }
+}
 
 /* ── Buttons ──────────────────────────────────────────────── */
 .btn {
@@ -660,6 +773,7 @@ body {
 .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
 .btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.12); }
 .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
+.btn-xs { padding: 4px 10px; font-size: 0.76rem; }
 
 /* ── Overlays & Modals ────────────────────────────────────── */
 .overlay {

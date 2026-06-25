@@ -12,13 +12,14 @@ export function openCooking(mealId) {
   cooking.portionMultiplier = meal.portion_multiplier || 1;
   cooking.stepIndex = 0;
   cooking.stepTimers = {};
-  cooking.alarmStepIndex = null;
+  cooking.alarmKeys = [];
   stopAlarm();
   releaseWakeLock();
   requestWakeLock();
   document.getElementById('cooking-recipe-label').textContent = meal.recipe.name;
   document.getElementById('cooking-mode').classList.remove('hidden');
   renderCookingStep();
+  renderTimerSidebar();
 }
 
 export function closeCooking() {
@@ -33,8 +34,8 @@ function stopAllTimers() {
     clearInterval(cooking.globalTimerInterval);
     cooking.globalTimerInterval = null;
   }
-  for (const timer of Object.values(cooking.stepTimers)) {
-    timer.running = false;
+  for (const timers of Object.values(cooking.stepTimers)) {
+    for (const t of timers) t.running = false;
   }
 }
 
@@ -51,167 +52,286 @@ export function renderCookingStep() {
   document.getElementById('cooking-prev').disabled = i === 0;
   document.getElementById('cooking-next').textContent = i === total - 1 ? '✓ Fertig' : 'Weiter →';
 
-  renderIngredients();
-
-  const secs = parseStepTime(steps[i]);
-  const timerSection = document.getElementById('cooking-timer-section');
-  if (secs) {
-    ensureStepTimer(i, secs);
-    timerSection.classList.remove('hidden');
-    updateTimerDisplay();
-    updateTimerButton();
-  } else {
-    timerSection.classList.add('hidden');
-  }
+  renderStepIngredients();
+  renderStepTimers();
 }
 
-function renderIngredients() {
+function renderStepIngredients() {
   const container = document.getElementById('cooking-ingredients');
   if (!container) return;
   const mult = cooking.portionMultiplier || 1;
   const fmt = n => n === Math.floor(n) ? Math.floor(n) : n.toFixed(1).replace(/\.0$/, '');
-  container.innerHTML = cooking.ingredients.map(ing => {
+  const stepText = cooking.steps[cooking.stepIndex] || '';
+  const relevant = getRelevantIngredients(stepText, cooking.ingredients);
+  container.innerHTML = relevant.map(ing => {
     const amount = ing.amount * mult;
-    return `<div class="cooking-ingredient"><span>${ing.name}</span><span>${fmt(amount)} ${ing.unit}</span></div>`;
+    return `<div class="cooking-ingredient"><span>${escapeHtml(ing.name)}</span><span>${fmt(amount)} ${escapeHtml(ing.unit)}</span></div>`;
   }).join('');
 }
 
-function ensureStepTimer(stepIndex, total) {
-  if (!cooking.stepTimers[stepIndex]) {
-    cooking.stepTimers[stepIndex] = { total, remaining: total, running: false };
+function getRelevantIngredients(stepText, allIngredients) {
+  if (!stepText || !allIngredients?.length) return [];
+  const relevant = allIngredients.filter(ing => {
+    const name = ing.name.toLowerCase();
+    try {
+      return new RegExp(`\\b${escapeRegex(name)}\\b`, 'i').test(stepText);
+    } catch { return false; }
+  });
+  return relevant.length > 0 ? relevant : allIngredients;
+}
+
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = String(str ?? '');
+  return div.innerHTML;
+}
+
+function renderStepTimers() {
+  const section = document.getElementById('cooking-timer-section');
+  const timers = getStepTimers(cooking.stepIndex);
+  if (!timers.length) {
+    section.classList.add('hidden');
+    section.innerHTML = '';
+    return;
   }
+  section.classList.remove('hidden');
+  section.innerHTML = timers.map((t, ti) => {
+    const isAlarm = isAlarmKey(cooking.stepIndex, ti);
+    const time = formatTime(t.remaining);
+    const pct = t.total > 0 ? (t.remaining / t.total) * 100 : 0;
+    let btnText, btnClass;
+    if (isAlarm) { btnText = '🔔 Alarm stoppen'; btnClass = 'btn-danger alarm-active'; }
+    else if (t.remaining <= 0) { btnText = '↺ Neu starten'; btnClass = 'btn-primary'; }
+    else if (t.running) { btnText = '⏸ Pausieren'; btnClass = 'btn-primary'; }
+    else { btnText = t.remaining < t.total ? '▶ Weiter' : '▶ Timer starten'; btnClass = 'btn-primary'; }
+    return `
+      <div class="timer-card ${isAlarm ? 'alarm' : ''}" data-step="${cooking.stepIndex}" data-timer="${ti}">
+        <div class="timer-card-header">
+          <span class="timer-card-label">${escapeHtml(t.label)}</span>
+          <span class="timer-card-time">${time}</span>
+        </div>
+        <div class="timer-card-bar"><div class="timer-card-progress" style="width:${pct}%"></div></div>
+        <button class="btn ${btnClass} btn-sm" onclick="toggleCookingTimer(${cooking.stepIndex}, ${ti})">${btnText}</button>
+      </div>
+    `;
+  }).join('');
 }
 
-export function cookingPrev() {
-  if (cooking.stepIndex > 0) { cooking.stepIndex--; renderCookingStep(); }
-}
-
-export function cookingNext() {
-  if (cooking.stepIndex < cooking.steps.length - 1) { cooking.stepIndex++; renderCookingStep(); }
-  else closeCooking();
-}
-
-export function toggleCookingTimer() {
-  if (cooking.alarmInterval) { stopAlarm(); return; }
-  const timer = cooking.stepTimers[cooking.stepIndex];
+export function toggleCookingTimer(stepIndex, timerIndex) {
+  if (typeof stepIndex !== 'number') stepIndex = cooking.stepIndex;
+  if (typeof timerIndex !== 'number') timerIndex = 0;
+  if (isAlarmKey(stepIndex, timerIndex)) {
+    clearAlarmKey(stepIndex, timerIndex);
+    return;
+  }
+  const timer = getTimer(stepIndex, timerIndex);
   if (!timer) return;
-  if (timer.running) pauseTimer();
-  else startTimer();
+  if (timer.running) pauseTimer(stepIndex, timerIndex);
+  else startTimer(stepIndex, timerIndex);
 }
 
-function startTimer() {
-  const timer = cooking.stepTimers[cooking.stepIndex];
+function getStepTimers(stepIndex) {
+  if (!cooking.stepTimers[stepIndex]) {
+    const parsed = parseStepTimes(cooking.steps[stepIndex] || '');
+    cooking.stepTimers[stepIndex] = parsed.map((p, i) => ({
+      id: i,
+      label: p.label,
+      total: p.seconds,
+      remaining: p.seconds,
+      running: false,
+    }));
+  }
+  return cooking.stepTimers[stepIndex];
+}
+
+function getTimer(stepIndex, timerIndex) {
+  return getStepTimers(stepIndex)[timerIndex];
+}
+
+function startTimer(stepIndex, timerIndex) {
+  const timer = getTimer(stepIndex, timerIndex);
   if (!timer) return;
+  if (timer.remaining <= 0) timer.remaining = timer.total;
   timer.running = true;
   ensureGlobalTimer();
-  updateTimerButton();
+  renderStepTimers();
+  renderTimerSidebar();
 }
 
-function pauseTimer() {
-  const timer = cooking.stepTimers[cooking.stepIndex];
+function pauseTimer(stepIndex, timerIndex) {
+  const timer = getTimer(stepIndex, timerIndex);
   if (!timer) return;
   timer.running = false;
-  updateTimerButton();
-}
-
-export function stopAlarm() {
-  clearInterval(cooking.alarmInterval);
-  cooking.alarmInterval = null;
-  cooking.alarmStepIndex = null;
-  updateTimerButton();
-  updateAlarmButtonVisibility();
-  document.getElementById('timer-btn')?.classList.remove('alarm-active');
-}
-
-export function stopCookingAlarm() {
-  stopAlarm();
-}
-
-function updateAlarmButtonVisibility() {
-  const btn = document.getElementById('cooking-stop-alarm');
-  if (!btn) return;
-  if (cooking.alarmInterval) {
-    btn.classList.remove('hidden');
-  } else {
-    btn.classList.add('hidden');
-  }
+  renderStepTimers();
+  renderTimerSidebar();
 }
 
 function ensureGlobalTimer() {
   if (cooking.globalTimerInterval) return;
   cooking.globalTimerInterval = setInterval(() => {
     let anyRunning = false;
-    for (const [idx, timer] of Object.entries(cooking.stepTimers)) {
-      if (!timer.running) continue;
-      anyRunning = true;
-      timer.remaining = Math.max(0, timer.remaining - 1);
-      if (timer.remaining <= 0) {
-        timer.running = false;
-        triggerAlarm(parseInt(idx));
+    for (const [stepIdx, timers] of Object.entries(cooking.stepTimers)) {
+      for (const [timerIdx, timer] of timers.entries()) {
+        if (!timer.running) continue;
+        anyRunning = true;
+        timer.remaining = Math.max(0, timer.remaining - 1);
+        if (timer.remaining <= 0) {
+          timer.running = false;
+          triggerAlarm(parseInt(stepIdx), parseInt(timerIdx));
+        }
       }
     }
-    if (cooking.stepIndex in cooking.stepTimers) {
-      updateTimerDisplay();
-      updateTimerButton();
-    }
-    if (!anyRunning && !cooking.alarmInterval) {
+    renderStepTimers();
+    renderTimerSidebar();
+    if (!anyRunning && !cooking.alarmKeys.length) {
       clearInterval(cooking.globalTimerInterval);
       cooking.globalTimerInterval = null;
     }
   }, 1000);
 }
 
-function triggerAlarm(stepIndex) {
-  stopAlarm();
-  cooking.alarmStepIndex = stepIndex;
-  const btn = document.getElementById('timer-btn');
-  if (cooking.stepIndex === stepIndex) {
-    btn.textContent = '🔔 Alarm stoppen';
-    btn.classList.add('alarm-active');
-  }
-  updateAlarmButtonVisibility();
+function triggerAlarm(stepIndex, timerIndex) {
+  addAlarmKey(stepIndex, timerIndex);
   playTimerSound();
-  cooking.alarmInterval = setInterval(playTimerSound, 2500);
+  if (!cooking.alarmInterval) {
+    cooking.alarmInterval = setInterval(playTimerSound, 2500);
+  }
+  renderStepTimers();
+  renderTimerSidebar();
 }
 
-function updateTimerButton() {
-  const btn = document.getElementById('timer-btn');
-  const timer = cooking.stepTimers[cooking.stepIndex];
-  if (!timer) return;
-  if (cooking.alarmInterval && cooking.alarmStepIndex === cooking.stepIndex) {
-    btn.textContent = '🔔 Alarm stoppen';
-    btn.classList.add('alarm-active');
-  } else if (timer.remaining <= 0) {
-    btn.textContent = '↺ Neu starten';
-    btn.classList.remove('alarm-active');
-  } else if (timer.running) {
-    btn.textContent = '⏸ Pausieren';
-    btn.classList.remove('alarm-active');
-  } else {
-    btn.textContent = timer.remaining < timer.total ? '▶ Weiter' : '▶ Timer starten';
-    btn.classList.remove('alarm-active');
+function addAlarmKey(stepIndex, timerIndex) {
+  if (!isAlarmKey(stepIndex, timerIndex)) {
+    cooking.alarmKeys.push({ stepIndex, timerIndex });
   }
 }
 
-function updateTimerDisplay() {
-  const timer = cooking.stepTimers[cooking.stepIndex];
-  if (!timer) return;
-  const r = timer.remaining;
-  const m = Math.floor(r / 60), s = r % 60;
-  document.getElementById('timer-digits').textContent = `${m}:${s.toString().padStart(2, '0')}`;
-  const circumference = 276.46;
-  const progress = timer.total > 0 ? r / timer.total : 0;
-  document.getElementById('timer-circle').style.strokeDashoffset = circumference * (1 - progress);
+function clearAlarmKey(stepIndex, timerIndex) {
+  cooking.alarmKeys = cooking.alarmKeys.filter(
+    k => k.stepIndex !== stepIndex || k.timerIndex !== timerIndex
+  );
+  if (!cooking.alarmKeys.length) stopAlarm();
+  else { renderStepTimers(); renderTimerSidebar(); }
 }
 
-function parseStepTime(text) {
-  const m = text.match(/(\d+)\s*(Stunden?|Std|Minuten?|Min|Sekunden?|Sek)/i);
-  if (!m) return null;
-  const n = parseInt(m[1]);
-  const unit = m[2].toLowerCase();
-  if (unit.startsWith('st')) return n * 3600;
-  if (unit.startsWith('sek') || unit === 's') return n;
-  return n * 60;
+function isAlarmKey(stepIndex, timerIndex) {
+  return cooking.alarmKeys.some(k => k.stepIndex === stepIndex && k.timerIndex === timerIndex);
+}
+
+export function stopAlarm() {
+  clearInterval(cooking.alarmInterval);
+  cooking.alarmInterval = null;
+  cooking.alarmKeys = [];
+  renderStepTimers();
+  renderTimerSidebar();
+}
+
+export function stopCookingAlarm() {
+  stopAlarm();
+}
+
+function renderTimerSidebar() {
+  const container = document.getElementById('cooking-timer-list');
+  if (!container) return;
+  const items = [];
+  for (const [stepIdx, timers] of Object.entries(cooking.stepTimers)) {
+    for (const [timerIdx, timer] of timers.entries()) {
+      const si = parseInt(stepIdx), ti = parseInt(timerIdx);
+      const wasStarted = timer.running || timer.remaining < timer.total || isAlarmKey(si, ti);
+      if (!wasStarted) continue;
+      const isAlarm = isAlarmKey(si, ti);
+      items.push({ stepIndex: si, timerIndex: ti, timer, isAlarm });
+    }
+  }
+  if (!items.length) {
+    container.innerHTML = '<p class="timer-list-empty">Noch keine Timer gestartet</p>';
+    return;
+  }
+  container.innerHTML = items.map(({stepIndex, timerIndex, timer, isAlarm}) => {
+    const time = formatTime(timer.remaining);
+    const label = timer.label || `Timer ${timerIndex + 1}`;
+    const stepLabel = stepIndex === cooking.stepIndex ? 'Aktuell' : `Schritt ${stepIndex + 1}`;
+    const btn = isAlarm
+      ? `<button class="btn btn-danger btn-xs" onclick="toggleCookingTimer(${stepIndex}, ${timerIndex})">🔔 Stop</button>`
+      : timer.running
+      ? `<button class="btn btn-ghost btn-xs" onclick="toggleCookingTimer(${stepIndex}, ${timerIndex})">⏸ Pause</button>`
+      : timer.remaining <= 0
+      ? `<button class="btn btn-primary btn-xs" onclick="toggleCookingTimer(${stepIndex}, ${timerIndex})">↺ Neu</button>`
+      : `<button class="btn btn-primary btn-xs" onclick="toggleCookingTimer(${stepIndex}, ${timerIndex})">▶ Weiter</button>`;
+    return `
+      <div class="timer-list-item ${isAlarm ? 'alarm' : timer.running ? 'running' : ''}">
+        <div class="timer-list-meta">
+          <span class="timer-list-step">${stepLabel}</span>
+          <span class="timer-list-label">${escapeHtml(label)}</span>
+        </div>
+        <div class="timer-list-row">
+          <span class="timer-list-time">${time}</span>
+          ${btn}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function formatTime(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60), remS = s % 60;
+  const h = Math.floor(m / 60), remM = m % 60;
+  if (h > 0) return `${h}:${remM.toString().padStart(2, '0')}:${remS.toString().padStart(2, '0')}`;
+  return `${m}:${remS.toString().padStart(2, '0')}`;
+}
+
+function parseStepTimes(text) {
+  const times = [];
+  const regex = /(\d+)\s*(Stunden?|Std|Minuten?|Min|Sekunden?|Sek)/gi;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    const n = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+    let seconds;
+    if (unit.startsWith('st')) seconds = n * 3600;
+    else if (unit.startsWith('sek') || unit === 's') seconds = n;
+    else seconds = n * 60;
+    const before = text.slice(0, match.index);
+    const label = extractLabel(before);
+    times.push({ label, seconds });
+  }
+  return times;
+}
+
+function extractLabel(before) {
+  let label = '';
+  const sentenceParts = before.split(/[.!?;]/);
+  label = sentenceParts[sentenceParts.length - 1].trim();
+  if (!label || label.length > 60) {
+    const commaParts = before.split(/,/);
+    label = commaParts[commaParts.length - 1].trim();
+  }
+  label = label.replace(/^[,;\s]+/, '');
+  if (!label) return 'Timer';
+  return label.length > 42 ? label.slice(0, 42) + '…' : label;
+}
+
+export function cookingPrev() {
+  if (cooking.stepIndex > 0) {
+    cooking.stepIndex--;
+    renderCookingStep();
+    renderTimerSidebar();
+  }
+}
+
+export function cookingNext() {
+  if (cooking.stepIndex < cooking.steps.length - 1) {
+    cooking.stepIndex++;
+    renderCookingStep();
+    renderTimerSidebar();
+  } else {
+    closeCooking();
+  }
 }
 
 let _duckAudio = null;

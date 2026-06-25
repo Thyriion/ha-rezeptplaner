@@ -39,11 +39,11 @@ export const cooking = {
   recipeName: '',
   ingredients: [],
   portionMultiplier: 1,
-  // Per-step timer state: { [stepIndex]: { total, remaining, running } }
+  // Per-step timers: { [stepIndex]: [{ label, total, remaining, running }, ...] }
   stepTimers: {},
   globalTimerInterval: null,
   alarmInterval: null,
-  alarmStepIndex: null,
+  alarmKeys: [], // [{ stepIndex, timerIndex }]
   wakeLock: null,
 };
 
