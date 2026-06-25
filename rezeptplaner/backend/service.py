@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 
 from .database import PlanStore
-from .models import Meal, PlanMeta, Recipe, Settings, SlotConfig, UserRecipe, WeekPlan
+from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
 from .prompt_builder import MEAL_SLOTS
 from .recipes import PlannerAI
 
@@ -38,7 +38,105 @@ class PlanService:
 
     async def add_recipe_to_plan(self, plan_id: int, day: str, meal_type: str, recipe: Recipe) -> Meal:
         meal = Meal(day=day, meal_type=meal_type, recipe=recipe)
-        return await self._store.add_meal_to_plan(plan_id, meal)
+        meal = await self._store.add_meal_to_plan(plan_id, meal)
+        # If this slot was previously skipped, remove the skipped marker.
+        await self._store.remove_skipped_slot(plan_id, day, meal_type)
+        return meal
+
+    async def skip_slot(self, plan_id: int, day: str, meal_type: str) -> SkippedSlot:
+        plan = await self._store.get_plan_by_id(plan_id)
+        if not plan:
+            raise LookupError("Plan nicht gefunden")
+        if plan.meals and all(m.confirmed for m in plan.meals):
+            raise ValueError("Plan ist bereits bestätigt")
+
+        target = next((m for m in plan.meals if m.day == day and m.meal_type == meal_type), None)
+        if target and target.id:
+            # If target is a leftovers meal, reset its source meal's multiplier first.
+            if target.is_leftovers and target.source_meal_id:
+                source = await self._store.get_meal_by_id(target.source_meal_id)
+                if source:
+                    await self._store.update_meal_portion_multiplier(source.id, 1)
+            await self._store.delete_meal_by_id(target.id)
+
+        # Avoid duplicate skipped slots.
+        already_skipped = any(s.day == day and s.meal_type == meal_type for s in plan.skipped_slots)
+        if already_skipped:
+            return next(s for s in plan.skipped_slots if s.day == day and s.meal_type == meal_type)
+
+        return await self._store.add_skipped_slot(plan_id, day, meal_type)
+
+    async def double_slot(self, plan_id: int, day: str, meal_type: str) -> Meal:
+        plan = await self._store.get_plan_by_id(plan_id)
+        if not plan:
+            raise LookupError("Plan nicht gefunden")
+        if plan.meals and all(m.confirmed for m in plan.meals):
+            raise ValueError("Plan ist bereits bestätigt")
+
+        slot_order = {slot: i for i, slot in enumerate(MEAL_SLOTS)}
+        target_key = (day, meal_type)
+        if target_key not in slot_order:
+            raise ValueError("Ungültiger Slot")
+
+        target_idx = slot_order[target_key]
+        if target_idx == 0:
+            raise ValueError("Kein vorheriger Slot vorhanden")
+
+        prev_key = MEAL_SLOTS[target_idx - 1]
+        prev_meal = next((m for m in plan.meals if m.day == prev_key[0] and m.meal_type == prev_key[1] and not m.is_leftovers), None)
+        if not prev_meal:
+            raise ValueError("Vorheriger Slot ist kein normales Meal")
+
+        # Remove any existing meal or skipped marker at the target slot.
+        existing_target = next((m for m in plan.meals if m.day == day and m.meal_type == meal_type and m.id), None)
+        if existing_target:
+            await self._store.delete_meal_by_id(existing_target.id)
+        await self._store.remove_skipped_slot(plan_id, day, meal_type)
+
+        await self._store.update_meal_portion_multiplier(prev_meal.id, 2)
+        return await self._store.add_leftovers_meal(plan_id, day, meal_type, prev_meal)
+
+    async def undo_double(self, leftovers_meal_id: int) -> None:
+        leftovers = await self._store.get_meal_by_id(leftovers_meal_id)
+        if not leftovers or not leftovers.is_leftovers:
+            raise LookupError("Leftovers-Meal nicht gefunden")
+        if leftovers.source_meal_id:
+            source = await self._store.get_meal_by_id(leftovers.source_meal_id)
+            if source:
+                await self._store.update_meal_portion_multiplier(source.id, 1)
+        await self._store.delete_meal_by_id(leftovers_meal_id)
+
+    async def fill_skipped_slot(self, plan_id: int, day: str, meal_type: str, *, reason: str | None = None, recipe_id: int | None = None) -> Meal:
+        plan = await self._store.get_plan_by_id(plan_id)
+        if not plan:
+            raise LookupError("Plan nicht gefunden")
+        if plan.meals and all(m.confirmed for m in plan.meals):
+            raise ValueError("Plan ist bereits bestätigt")
+        if not any(s.day == day and s.meal_type == meal_type for s in plan.skipped_slots):
+            raise ValueError("Slot ist nicht ausgelassen")
+
+        if recipe_id is not None:
+            user_recipe = await self._store.get_user_recipe_by_id(recipe_id)
+            if not user_recipe:
+                raise LookupError("Eigenes Rezept nicht gefunden")
+            return await self.add_recipe_to_plan(plan_id, day, meal_type, user_recipe.recipe)
+
+        # AI suggestion
+        current_names = [m.recipe.name for m in plan.meals if not m.is_leftovers]
+        settings = await self.get_settings()
+        recent_swaps = await self._store.get_recent_swaps()
+        ratings = await self._store.get_ratings()
+        new_recipe = await self._planner.replace_meal(
+            old_recipe_name="",
+            reason=reason or "sonstiges",
+            day=day,
+            meal_type=meal_type,
+            settings=settings,
+            recent_swaps=recent_swaps,
+            ratings=ratings,
+            current_recipe_names=current_names or None,
+        )
+        return await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
 
     # ── Ratings ───────────────────────────────────────────────────
 
@@ -59,44 +157,19 @@ class PlanService:
             return reply, None
         return await self._generate_and_save_plan()
 
-    async def generate_plan(self, slot_configs: list[SlotConfig] | None = None) -> tuple[str, WeekPlan]:
-        return await self._generate_and_save_plan(slot_configs)
+    async def generate_plan(self) -> tuple[str, WeekPlan]:
+        return await self._generate_and_save_plan()
 
-    async def _generate_and_save_plan(self, slot_configs: list[SlotConfig] | None = None) -> tuple[str, WeekPlan]:
+    async def _generate_and_save_plan(self) -> tuple[str, WeekPlan]:
         settings = await self.get_settings()
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
         recent_names = await self._store.get_recent_recipe_names()
 
-        if slot_configs:
-            slot_modes = {(s.day, s.meal_type): s.mode for s in slot_configs}
-            normal_slots = [(s.day, s.meal_type) for s in slot_configs if s.mode == "normal"]
-        else:
-            slot_modes = {}
-            normal_slots = list(MEAL_SLOTS)
-
         new_plan = await self._planner.generate_plan(
             settings, recent_swaps, ratings, recent_names,
-            slots=normal_slots if slot_configs else None,
+            slots=list(MEAL_SLOTS),
         )
-
-        # Insert leftovers meals after normal slot meals
-        recipe_by_slot = {(m.day, m.meal_type): m.recipe for m in new_plan.meals}
-        for i, slot in enumerate(MEAL_SLOTS):
-            if slot_modes.get(slot, "normal") != "leftovers":
-                continue
-            source_recipe = None
-            for prev in reversed(MEAL_SLOTS[:i]):
-                if slot_modes.get(prev, "normal") == "normal":
-                    source_recipe = recipe_by_slot.get(prev)
-                    break
-            if source_recipe is None:
-                continue
-            day, meal_type = slot
-            new_plan.meals.append(Meal(
-                day=day, meal_type=meal_type, recipe=source_recipe,
-                is_leftovers=True, source_recipe_name=source_recipe.name,
-            ))
 
         # Sort by MEAL_SLOTS order
         slot_order = {slot: i for i, slot in enumerate(MEAL_SLOTS)}
@@ -111,6 +184,7 @@ class PlanService:
         else:
             new_plan.week_start = this_monday.isoformat()
 
+        new_plan.skipped_slots = []
         new_plan = await self._store.save_new_plan(new_plan)
 
         normal_meals = [m for m in new_plan.meals if not m.is_leftovers]
@@ -120,7 +194,7 @@ class PlanService:
             f"Dein Wochenplan steht! "
             f"Highlights: {highlights}"
             + (f" – und {extra} weitere Gerichte." if extra > 0 else ".")
-            + f' Im Tab "Wochenplan" kannst du alles einsehen und einzelne Mahlzeiten tauschen.'
+            + f' Im Tab "Wochenplan" kannst du alles einsehen, Mahlzeiten tauschen, auslassen oder verdoppeln.'
         )
         return reply, new_plan
 

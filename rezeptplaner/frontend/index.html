@@ -239,24 +239,6 @@
   </div>
 </div>
 
-<!-- ── Slot Config Modal ─────────────────────────────────────── -->
-<div id="slot-modal" class="overlay hidden">
-  <div class="modal-card">
-    <div class="modal-header">
-      <h2>Wochenplan konfigurieren</h2>
-      <button class="btn-icon" onclick="closeSlotModal()">✕</button>
-    </div>
-    <div class="modal-body">
-      <p class="hint">Lege fest, welche Tage eingeplant werden sollen.</p>
-      <div id="slot-list"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost btn-sm" onclick="closeSlotModal()">Abbrechen</button>
-      <button class="btn btn-primary" onclick="confirmSlotConfig()">Generieren</button>
-    </div>
-  </div>
-</div>
-
 <!-- ── Recipe Form Modal ────────────────────────────────────── -->
 <div id="recipe-form-modal" class="overlay hidden">
   <div class="modal-card recipe-form-card">
@@ -323,12 +305,19 @@
         <p class="cooking-recipe-label" id="cooking-recipe-label"></p>
         <div class="cooking-dots-row" id="cooking-dots"></div>
       </div>
-      <button class="btn-icon cooking-close" onclick="closeCooking()">✕</button>
+      <div class="cooking-header-actions">
+        <button id="cooking-stop-alarm" class="btn btn-danger btn-sm alarm-stop-btn hidden" onclick="stopCookingAlarm()">🔔 Alarm stoppen</button>
+        <button class="btn-icon cooking-close" onclick="closeCooking()">✕</button>
+      </div>
     </div>
 
     <div class="cooking-body">
       <div class="cooking-step-number" id="cooking-step-num">Schritt 1 / 5</div>
       <p class="cooking-step-text" id="cooking-step-text"></p>
+      <div class="cooking-ingredients-wrap">
+        <p class="cooking-ingredients-label">Zutaten</p>
+        <div id="cooking-ingredients" class="cooking-ingredients"></div>
+      </div>
     </div>
 
     <div id="cooking-timer-section" class="cooking-timer hidden">

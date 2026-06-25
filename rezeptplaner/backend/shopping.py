@@ -34,14 +34,18 @@ def build_shopping_list(plan: WeekPlan | None) -> ShoppingList:
 
     aggregated: dict[tuple[str, str], ShoppingItem] = {}
     for meal in plan.meals:
+        if meal.is_leftovers:
+            continue
+        multiplier = meal.portion_multiplier or 1
         for ing in meal.recipe.ingredients:
             key = (ing.name.lower(), _norm_unit(ing.unit))
+            amount = ing.amount * multiplier
             if key in aggregated:
-                aggregated[key].amount += ing.amount
+                aggregated[key].amount += amount
             else:
                 aggregated[key] = ShoppingItem(
                     name=ing.name,
-                    amount=ing.amount,
+                    amount=amount,
                     unit=ing.unit,
                     category=ing.category if ing.category in CATEGORY_ORDER else "Sonstiges",
                 )

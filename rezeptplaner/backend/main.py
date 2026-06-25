@@ -15,6 +15,8 @@ from .models import (
     ChatRequest,
     ChatResponse,
     ConnectionTestResponse,
+    DoubleSlotRequest,
+    FillSkippedSlotRequest,
     GeneratePlanRequest,
     Meal,
     PlanMeta,
@@ -22,8 +24,11 @@ from .models import (
     Recipe,
     Settings,
     ShoppingList,
+    SkippedSlot,
+    SkipSlotRequest,
     SwapRequest,
     SwapWithRecipeRequest,
+    UndoDoubleRequest,
     UserRecipe,
     WeekPlan,
 )
@@ -107,13 +112,54 @@ async def get_plan_by_id(plan_id: int):
 
 @app.post("/api/plan/generate", response_model=ChatResponse)
 async def generate_plan(req: GeneratePlanRequest = GeneratePlanRequest()):
-    slot_configs = req.slots if req.slots else None
     try:
-        reply, new_plan = await _service.generate_plan(slot_configs)
+        reply, new_plan = await _service.generate_plan()
         return ChatResponse(reply=reply, plan=new_plan)
     except Exception as e:
         logger.exception("Plan-Generierung fehlgeschlagen")
         raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
+
+
+@app.post("/api/plan/skip-slot", response_model=SkippedSlot)
+async def skip_slot(req: SkipSlotRequest):
+    try:
+        return await _service.skip_slot(req.plan_id, req.day, req.meal_type)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/plan/double-slot", response_model=Meal)
+async def double_slot(req: DoubleSlotRequest):
+    try:
+        return await _service.double_slot(req.plan_id, req.day, req.meal_type)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/plan/undo-double")
+async def undo_double(req: UndoDoubleRequest):
+    try:
+        await _service.undo_double(req.leftovers_meal_id)
+        return {"ok": True}
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/plan/fill-skipped-slot", response_model=Meal)
+async def fill_skipped_slot(req: FillSkippedSlotRequest):
+    try:
+        return await _service.fill_skipped_slot(
+            req.plan_id, req.day, req.meal_type,
+            reason=req.reason, recipe_id=req.recipe_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.post("/api/plan/confirm")

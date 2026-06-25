@@ -475,6 +475,16 @@ body {
   margin-bottom: 12px;
   flex-shrink: 0;
 }
+
+.cooking-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alarm-stop-btn {
+  animation: alarm-pulse 0.6s ease-in-out infinite alternate;
+}
 .cooking-recipe-label {
   font-size: 0.8rem;
   font-weight: 700;
@@ -502,6 +512,44 @@ body {
   flex-direction: column;
   justify-content: center;
   padding: 20px 0;
+  overflow-y: auto;
+}
+
+.cooking-ingredients-wrap {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--surface-3);
+}
+
+.cooking-ingredients-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-faint);
+  margin-bottom: 10px;
+}
+
+.cooking-ingredients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cooking-ingredient {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 0.84rem;
+}
+
+.cooking-ingredient span:last-child {
+  color: var(--text-dim);
+  font-weight: 600;
 }
 .cooking-step-number {
   font-size: 0.82rem;
@@ -1069,3 +1117,19 @@ body {
 /* ── Leftovers Meal Card ─────────────────────────────────────── */
 .plan-meal.leftovers-meal .plan-meal-header { opacity: 0.75; }
 .leftovers-badge { font-size: 0.78rem; color: var(--text-dim); margin-left: 6px; }
+
+/* ── Skipped Meal Card ───────────────────────────────────────── */
+.plan-meal.skipped-meal { background: rgba(148,163,184,0.08); }
+.plan-meal.skipped-meal .plan-meal-header { opacity: 0.6; cursor: default; }
+.plan-meal.skipped-meal .plan-meal-header:hover { background: transparent; }
+
+/* ── Multiplier Badge ────────────────────────────────────────── */
+.multiplier-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--warning);
+  color: #000;
+  padding: 2px 7px;
+  border-radius: 12px;
+  margin-left: 4px;
+}

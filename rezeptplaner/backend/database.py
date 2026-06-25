@@ -6,7 +6,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from .models import Meal, Recipe, Settings, UserRecipe, WeekPlan
+from .models import Meal, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
 
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/rezeptplaner.db"))
 
@@ -23,12 +23,23 @@ CREATE TABLE IF NOT EXISTS meal_plans (
 );
 
 CREATE TABLE IF NOT EXISTS meals (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    plan_id     INTEGER NOT NULL REFERENCES meal_plans(id),
-    day         TEXT    NOT NULL,
-    meal_type   TEXT    NOT NULL,
-    recipe_json TEXT    NOT NULL,
-    confirmed   INTEGER NOT NULL DEFAULT 0
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id            INTEGER NOT NULL REFERENCES meal_plans(id),
+    day                TEXT    NOT NULL,
+    meal_type          TEXT    NOT NULL,
+    recipe_json        TEXT    NOT NULL,
+    confirmed          INTEGER NOT NULL DEFAULT 0,
+    is_leftovers       INTEGER NOT NULL DEFAULT 0,
+    source_recipe_name TEXT,
+    source_meal_id     INTEGER,
+    portion_multiplier INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS skipped_slots (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    plan_id   INTEGER NOT NULL REFERENCES meal_plans(id),
+    day       TEXT    NOT NULL,
+    meal_type TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS swaps (
@@ -56,6 +67,14 @@ _MIGRATIONS = [
     "ALTER TABLE swaps ADD COLUMN recipe_name TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE meals ADD COLUMN is_leftovers INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE meals ADD COLUMN source_recipe_name TEXT",
+    "ALTER TABLE meals ADD COLUMN source_meal_id INTEGER",
+    "ALTER TABLE meals ADD COLUMN portion_multiplier INTEGER NOT NULL DEFAULT 1",
+    """CREATE TABLE IF NOT EXISTS skipped_slots (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id   INTEGER NOT NULL REFERENCES meal_plans(id),
+        day       TEXT    NOT NULL,
+        meal_type TEXT    NOT NULL
+    )""",
 ]
 
 
@@ -121,11 +140,17 @@ class PlanStore:
             if not row:
                 return None
             async with db.execute(
-                "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name FROM meals WHERE plan_id = ?",
+                "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name, source_meal_id, portion_multiplier FROM meals WHERE plan_id = ?",
                 (plan_id,),
             ) as cur:
                 meal_rows = await cur.fetchall()
-        return WeekPlan(id=row[0], week_start=row[1], meals=self._meals_from_rows(meal_rows))
+            async with db.execute(
+                "SELECT id, day, meal_type FROM skipped_slots WHERE plan_id = ?",
+                (plan_id,),
+            ) as cur:
+                skipped_rows = await cur.fetchall()
+        skipped_slots = [SkippedSlot(id=r[0], plan_id=plan_id, day=r[1], meal_type=r[2]) for r in skipped_rows]
+        return WeekPlan(id=row[0], week_start=row[1], meals=self._meals_from_rows(meal_rows), skipped_slots=skipped_slots)
 
     async def get_current_plan(self) -> WeekPlan | None:
         async with self._conn() as db:
@@ -138,7 +163,7 @@ class PlanStore:
         return await self.get_plan_by_id(row[0])
 
     async def save_new_plan(self, plan: WeekPlan) -> WeekPlan:
-        """Create plan + save all meals in one transaction; returns plan with all IDs assigned."""
+        """Create plan + save all meals and skipped slots in one transaction; returns plan with all IDs assigned."""
         async with self._conn() as db:
             cur = await db.execute(
                 "INSERT INTO meal_plans (week_start) VALUES (?)", (plan.week_start,)
@@ -146,12 +171,20 @@ class PlanStore:
             plan_id = cur.lastrowid
             for meal in plan.meals:
                 cur = await db.execute(
-                    "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name, source_meal_id, portion_multiplier) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json(),
-                     int(meal.is_leftovers), meal.source_recipe_name),
+                     int(meal.is_leftovers), meal.source_recipe_name, meal.source_meal_id,
+                     meal.portion_multiplier),
                 )
                 meal.id = cur.lastrowid
+            for slot in plan.skipped_slots:
+                cur = await db.execute(
+                    "INSERT INTO skipped_slots (plan_id, day, meal_type) VALUES (?, ?, ?)",
+                    (plan_id, slot.day, slot.meal_type),
+                )
+                slot.id = cur.lastrowid
+                slot.plan_id = plan_id
             await db.commit()
         plan.id = plan_id
         return plan
@@ -169,6 +202,7 @@ class PlanStore:
                 if not await cur.fetchone():
                     return False
             await db.execute("DELETE FROM meals WHERE plan_id = ?", (plan_id,))
+            await db.execute("DELETE FROM skipped_slots WHERE plan_id = ?", (plan_id,))
             await db.execute("DELETE FROM meal_plans WHERE id = ?", (plan_id,))
             await db.commit()
         return True
@@ -176,10 +210,11 @@ class PlanStore:
     async def add_meal_to_plan(self, plan_id: int, meal: Meal) -> Meal:
         async with self._conn() as db:
             cur = await db.execute(
-                "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO meals (plan_id, day, meal_type, recipe_json, is_leftovers, source_recipe_name, source_meal_id, portion_multiplier) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (plan_id, meal.day, meal.meal_type, meal.recipe.model_dump_json(),
-                 int(meal.is_leftovers), meal.source_recipe_name),
+                 int(meal.is_leftovers), meal.source_recipe_name, meal.source_meal_id,
+                 meal.portion_multiplier),
             )
             await db.commit()
             meal.id = cur.lastrowid
@@ -190,7 +225,7 @@ class PlanStore:
     async def get_meal_by_id(self, meal_id: int) -> Meal | None:
         async with self._conn() as db:
             async with db.execute(
-                "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name "
+                "SELECT id, day, meal_type, recipe_json, confirmed, is_leftovers, source_recipe_name, source_meal_id, portion_multiplier "
                 "FROM meals WHERE id = ?",
                 (meal_id,),
             ) as cur:
@@ -203,6 +238,8 @@ class PlanStore:
             confirmed=bool(row[4]),
             is_leftovers=bool(row[5]),
             source_recipe_name=row[6],
+            source_meal_id=row[7],
+            portion_multiplier=row[8],
         )
 
     async def apply_swap(self, meal_id: int, recipe: Recipe, reason: str) -> Meal:
@@ -225,6 +262,58 @@ class PlanStore:
             )
             await db.commit()
         return await self.get_meal_by_id(meal_id)
+
+    # ── Skipped slots ─────────────────────────────────────────────────
+
+    async def add_skipped_slot(self, plan_id: int, day: str, meal_type: str) -> SkippedSlot:
+        async with self._conn() as db:
+            cur = await db.execute(
+                "INSERT INTO skipped_slots (plan_id, day, meal_type) VALUES (?, ?, ?)",
+                (plan_id, day, meal_type),
+            )
+            await db.commit()
+            return SkippedSlot(id=cur.lastrowid, plan_id=plan_id, day=day, meal_type=meal_type)
+
+    async def remove_skipped_slot(self, plan_id: int, day: str, meal_type: str) -> bool:
+        async with self._conn() as db:
+            cur = await db.execute(
+                "DELETE FROM skipped_slots WHERE plan_id = ? AND day = ? AND meal_type = ?",
+                (plan_id, day, meal_type),
+            )
+            await db.commit()
+            return cur.rowcount > 0
+
+    async def remove_skipped_slot_by_id(self, slot_id: int) -> bool:
+        async with self._conn() as db:
+            cur = await db.execute("DELETE FROM skipped_slots WHERE id = ?", (slot_id,))
+            await db.commit()
+            return cur.rowcount > 0
+
+    # ── Leftovers / doubling ──────────────────────────────────────────
+
+    async def add_leftovers_meal(self, plan_id: int, day: str, meal_type: str, source_meal: Meal) -> Meal:
+        meal = Meal(
+            day=day, meal_type=meal_type,
+            recipe=source_meal.recipe,
+            is_leftovers=True,
+            source_recipe_name=source_meal.recipe.name,
+            source_meal_id=source_meal.id,
+        )
+        return await self.add_meal_to_plan(plan_id, meal)
+
+    async def update_meal_portion_multiplier(self, meal_id: int, multiplier: int) -> None:
+        async with self._conn() as db:
+            await db.execute(
+                "UPDATE meals SET portion_multiplier = ? WHERE id = ?",
+                (multiplier, meal_id),
+            )
+            await db.commit()
+
+    async def delete_meal_by_id(self, meal_id: int) -> bool:
+        async with self._conn() as db:
+            cur = await db.execute("DELETE FROM meals WHERE id = ?", (meal_id,))
+            await db.commit()
+            return cur.rowcount > 0
 
     # ── Swap history ──────────────────────────────────────────────────
 
@@ -333,6 +422,8 @@ class PlanStore:
                 confirmed=bool(r[4]),
                 is_leftovers=bool(r[5]),
                 source_recipe_name=r[6],
+                source_meal_id=r[7],
+                portion_multiplier=r[8],
             )
             for r in rows
         ]

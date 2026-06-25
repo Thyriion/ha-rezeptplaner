@@ -6,17 +6,16 @@ import { loadAllPlans, loadRatings, updatePlanNav, navigatePlan, renderPlan,
          toggleMeal, confirmPlan, deletePlan,
          openSwapModal, closeSwapModal, confirmSwap, selectSwapMode,
          selectSwapRecipe, swapGoBack,
-         rateMeal } from './plan.js';
+         rateMeal, skipSlot, doubleSlot, undoDouble, openSwapSkippedSlot } from './plan.js';
 import { loadUserRecipes, renderUserRecipes, toggleUserRecipe,
          openRecipeForm, closeRecipeForm, saveUserRecipe, deleteUserRecipeById,
          editUserRecipeById, addIngredientRow, addStepRow } from './myrecipes.js';
 import { openCooking, closeCooking, cookingPrev, cookingNext,
-         toggleCookingTimer } from './cooking.js';
+         toggleCookingTimer, stopCookingAlarm } from './cooking.js';
 import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
 import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          appendMsg, openAddToPlanModal, closeAddToPlanModal,
-         confirmAddToPlan, checkAddToPlanReady,
-         openSlotModal, closeSlotModal, setSlotMode, confirmSlotConfig } from './chat.js';
+         confirmAddToPlan, checkAddToPlanReady } from './chat.js';
 import { showWizard, updateWizardStep, wizardBack, wizardNext, adjustPersons,
          openSettings, closeSettings, saveSettings, adjustSettingsPersons,
          addTag, removeTag, tagKeydown } from './settings.js';
@@ -67,15 +66,14 @@ Object.assign(window, {
   navigatePlan, toggleMeal, confirmPlan, deletePlan,
   openSwapModal, closeSwapModal, confirmSwap, selectSwapMode,
   selectSwapRecipe, swapGoBack, rateMeal,
+  skipSlot, doubleSlot, undoDouble, openSwapSkippedSlot,
   // cooking
-  openCooking, closeCooking, cookingPrev, cookingNext, toggleCookingTimer,
+  openCooking, closeCooking, cookingPrev, cookingNext, toggleCookingTimer, stopCookingAlarm,
   // shopping
   toggleCheck, pushToHA, navigateShopping,
   // chat
   sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
   openAddToPlanModal, closeAddToPlanModal, confirmAddToPlan,
-  // slot modal
-  openSlotModal, closeSlotModal, setSlotMode, confirmSlotConfig,
   // settings
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,

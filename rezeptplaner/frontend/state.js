@@ -14,6 +14,7 @@ export const swapState = {
   reason: null,
   mode: null,
   recipeId: null,
+  skippedSlot: null,
 };
 
 export const wizardState = {
@@ -36,11 +37,14 @@ export const cooking = {
   steps: [],
   stepIndex: 0,
   recipeName: '',
-  timerTotal: 0,
-  timerRemaining: 0,
-  timerInterval: null,
-  timerRunning: false,
+  ingredients: [],
+  portionMultiplier: 1,
+  // Per-step timer state: { [stepIndex]: { total, remaining, running } }
+  stepTimers: {},
+  globalTimerInterval: null,
   alarmInterval: null,
+  alarmStepIndex: null,
+  wakeLock: null,
 };
 
 export const DAY_LABELS = {
@@ -49,6 +53,17 @@ export const DAY_LABELS = {
 };
 export const MEAL_LABELS = { lunch:'Mittagessen', dinner:'Abendessen' };
 export const DAY_ORDER   = ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'];
+export const MEAL_SLOTS  = [
+  { day: 'monday',    meal_type: 'dinner' },
+  { day: 'tuesday',   meal_type: 'dinner' },
+  { day: 'wednesday', meal_type: 'dinner' },
+  { day: 'thursday',  meal_type: 'dinner' },
+  { day: 'friday',    meal_type: 'dinner' },
+  { day: 'saturday',  meal_type: 'lunch'  },
+  { day: 'saturday',  meal_type: 'dinner' },
+  { day: 'sunday',    meal_type: 'lunch'  },
+  { day: 'sunday',    meal_type: 'dinner' },
+];
 export const CATEGORIES  = [
   'Gemüse & Obst', 'Fleisch & Fisch', 'Milchprodukte & Eier',
   'Getreide & Backwaren', 'Konserven & Trockenwaren', 'Gewürze & Öle', 'Sonstiges',

@@ -1,7 +1,7 @@
 'use strict';
 
 import { apiGet, apiPost, apiDelete } from './api.js';
-import { DAY_LABELS, DAY_ORDER, MEAL_LABELS, planState, swapState, recipeState } from './state.js';
+import { DAY_LABELS, DAY_ORDER, MEAL_LABELS, MEAL_SLOTS, planState, swapState, recipeState } from './state.js';
 import { showToast, switchTab } from './app.js';
 import { openCooking } from './cooking.js';
 
@@ -52,22 +52,26 @@ export async function navigatePlan(dir) {
 export function renderPlan() {
   const plan = planState.plan;
   const container = document.getElementById('plan-content');
-  if (!plan?.meals?.length) {
+  if (!plan?.meals?.length && !plan?.skipped_slots?.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-icon">📅</div><p>Noch kein Wochenplan</p><p class="hint">Nutze den Chat oder klicke "Wochenplan generieren"!</p></div>`;
     return;
   }
   const isConfirmed = plan.meals.every(m => m.confirmed);
   const byDay = {};
   for (const meal of plan.meals) (byDay[meal.day] = byDay[meal.day] || []).push(meal);
+  const skippedByDay = {};
+  for (const slot of (plan.skipped_slots || [])) (skippedByDay[slot.day] = skippedByDay[slot.day] || []).push(slot);
 
   let html = `<div class="plan-toolbar">
     <button class="btn btn-danger btn-sm" onclick="deletePlan(${plan.id})">🗑 Woche löschen</button>
   </div>`;
   for (const day of DAY_ORDER) {
     const meals = byDay[day];
-    if (!meals) continue;
+    const skipped = skippedByDay[day];
+    if (!meals?.length && !skipped?.length) continue;
     html += `<div class="plan-day"><div class="plan-day-header">${DAY_LABELS[day]}</div>`;
-    for (const meal of meals) html += renderMealCard(meal, isConfirmed);
+    if (meals) for (const meal of meals) html += renderMealCard(meal, isConfirmed);
+    if (skipped) for (const slot of skipped) html += renderSkippedSlotCard(slot, isConfirmed);
     html += `</div>`;
   }
   html += `<div class="plan-actions">`;
@@ -79,27 +83,37 @@ export function renderPlan() {
 
 export function renderMealCard(meal, isConfirmed) {
   if (meal.is_leftovers) {
+    const undoBtn = isConfirmed ? '' : `<button class="btn-swap" onclick="event.stopPropagation(); undoDouble(${meal.id})">↩ Aufheben</button>`;
     return `<div class="plan-meal leftovers-meal" id="meal-${meal.id}">
       <div class="plan-meal-header">
         <span class="meal-type-badge">${MEAL_LABELS[meal.meal_type]}</span>
         <span class="meal-name">↩ Reste</span>
         <span class="leftovers-badge">${meal.source_recipe_name}</span>
+        <div class="meal-actions">${undoBtn}</div>
       </div>
     </div>`;
   }
   const r = meal.recipe, n = r.nutrition_per_serving;
   const disabled = (isConfirmed || meal.confirmed) ? 'disabled' : '';
+  const canDouble = !isConfirmed && _canDoubleSlot(meal.day, meal.meal_type);
+  const multiplierBadge = meal.portion_multiplier > 1 ? `<span class="multiplier-badge">×${meal.portion_multiplier}</span>` : '';
   const amt = i => `${i.amount === Math.floor(i.amount) ? Math.floor(i.amount) : i.amount} ${i.unit}`;
   const currentRating = planState.ratings[r.name] ?? 5;
   const stars = renderStars(r.name, currentRating);
+  const editButtons = isConfirmed ? '' : `
+    <button class="btn-swap" ${disabled} onclick="event.stopPropagation(); skipSlot('${meal.day}','${meal.meal_type}')">✕ Auslassen</button>
+    <button class="btn-swap" ${disabled} ${canDouble ? '' : 'disabled'} onclick="event.stopPropagation(); doubleSlot('${meal.day}','${meal.meal_type}')">×2 Verdoppeln</button>
+  `;
   return `<div class="plan-meal" id="meal-${meal.id}">
     <div class="plan-meal-header" onclick="toggleMeal(${meal.id})">
       <span class="meal-type-badge">${MEAL_LABELS[meal.meal_type]}</span>
       <span class="meal-name">${r.name}</span>
+      ${multiplierBadge}
       <span class="meal-time">⏱ ${r.cooking_time_minutes} Min</span>
       <div class="meal-actions">
         <button class="btn-cook" onclick="event.stopPropagation(); openCooking(${meal.id})">👨‍🍳 Kochen</button>
         <button class="btn-swap" ${disabled} onclick="event.stopPropagation(); openSwapModal(${meal.id},'${r.name.replace(/'/g,"\\'")}')">↔ Tauschen</button>
+        ${editButtons}
       </div>
       <span class="expand-icon">▾</span>
     </div>
@@ -117,6 +131,24 @@ export function renderMealCard(meal, isConfirmed) {
       <ul class="ingredients-list">${r.ingredients.map(i => `<li><span>${i.name}</span><span class="ing-amount">${amt(i)}</span></li>`).join('')}</ul>
       <p class="section-label">Zubereitung</p>
       <ol class="steps-list">${r.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+    </div>
+  </div>`;
+}
+
+function _canDoubleSlot(day, mealType) {
+  const idx = MEAL_SLOTS.findIndex(s => s.day === day && s.meal_type === mealType);
+  if (idx <= 0) return false;
+  const prev = MEAL_SLOTS[idx - 1];
+  return planState.plan?.meals.some(m => m.day === prev.day && m.meal_type === prev.meal_type && !m.is_leftovers) ?? false;
+}
+
+export function renderSkippedSlotCard(slot, isConfirmed) {
+  const swapBtn = isConfirmed ? '' : `<button class="btn-swap" onclick="openSwapSkippedSlot('${slot.day}','${slot.meal_type}')">↔ Tauschen</button>`;
+  return `<div class="plan-meal skipped-meal" id="skipped-${slot.day}-${slot.meal_type}">
+    <div class="plan-meal-header">
+      <span class="meal-type-badge">${MEAL_LABELS[slot.meal_type]}</span>
+      <span class="meal-name">✕ Ausgelassen</span>
+      <div class="meal-actions">${swapBtn}</div>
     </div>
   </div>`;
 }
@@ -171,6 +203,7 @@ export function openSwapModal(mealId, mealName) {
   swapState.reason = null;
   swapState.mode = null;
   swapState.recipeId = null;
+  swapState.skippedSlot = null;
   document.getElementById('swap-meal-name').textContent = mealName;
   document.getElementById('swap-mode-section').classList.remove('hidden');
   document.getElementById('swap-ai-section').classList.add('hidden');
@@ -181,7 +214,10 @@ export function openSwapModal(mealId, mealName) {
   document.getElementById('swap-modal').classList.remove('hidden');
 }
 
-export function closeSwapModal() { document.getElementById('swap-modal').classList.add('hidden'); }
+export function closeSwapModal() {
+  document.getElementById('swap-modal').classList.add('hidden');
+  swapState.skippedSlot = null;
+}
 
 export function selectSwapMode(mode) {
   swapState.mode = mode;
@@ -219,6 +255,7 @@ export function swapGoBack() {
   swapState.mode = null;
   swapState.reason = null;
   swapState.recipeId = null;
+  swapState.skippedSlot = null;
   document.getElementById('swap-mode-section').classList.remove('hidden');
   document.getElementById('swap-ai-section').classList.add('hidden');
   document.getElementById('swap-recipe-section').classList.add('hidden');
@@ -228,13 +265,30 @@ export function swapGoBack() {
 }
 
 export async function confirmSwap() {
-  if (!swapState.mealId || !swapState.mode) return;
+  const isSkipped = !!swapState.skippedSlot;
+  if (isSkipped) {
+    if (!swapState.mode) return;
+  } else {
+    if (!swapState.mealId || !swapState.mode) return;
+  }
   if (swapState.mode === 'ai' && !swapState.reason) return;
   if (swapState.mode === 'recipe' && !swapState.recipeId) return;
+
   const btn = document.getElementById('swap-confirm-btn');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner"></span> Wird getauscht…';
   try {
+    if (isSkipped) {
+      const req = { plan_id: planState.plan.id, day: swapState.skippedSlot.day, meal_type: swapState.skippedSlot.meal_type };
+      if (swapState.mode === 'ai') req.reason = swapState.reason;
+      else if (swapState.mode === 'recipe') req.recipe_id = swapState.recipeId;
+      await apiPost('api/plan/fill-skipped-slot', req);
+      closeSwapModal();
+      await _reloadPlan();
+      showToast('Slot wurde befüllt!', 'success');
+      return;
+    }
+
     let updated;
     if (swapState.mode === 'ai') {
       updated = await apiPost('api/plan/swap', { meal_id: swapState.mealId, reason: swapState.reason });
@@ -250,4 +304,51 @@ export async function confirmSwap() {
     showToast('Rezept wurde ausgetauscht!', 'success');
   } catch { showToast('Fehler beim Tauschen.', 'error'); }
   finally { btn.disabled = false; btn.textContent = 'Tauschen'; }
+}
+
+async function _reloadPlan() {
+  if (!planState.plan?.id) return;
+  const plan = await apiGet(`api/plan/${planState.plan.id}`);
+  if (plan) { planState.plan = plan; renderPlan(); }
+}
+
+export async function skipSlot(day, mealType) {
+  if (!planState.plan?.id) return;
+  try {
+    await apiPost('api/plan/skip-slot', { plan_id: planState.plan.id, day, meal_type: mealType });
+    await _reloadPlan();
+    showToast('Slot ausgelassen.', 'success');
+  } catch { showToast('Fehler beim Auslassen.', 'error'); }
+}
+
+export async function doubleSlot(day, mealType) {
+  if (!planState.plan?.id) return;
+  try {
+    await apiPost('api/plan/double-slot', { plan_id: planState.plan.id, day, meal_type: mealType });
+    await _reloadPlan();
+    showToast('Slot verdoppelt.', 'success');
+  } catch { showToast('Fehler beim Verdoppeln.', 'error'); }
+}
+
+export async function undoDouble(leftoversMealId) {
+  try {
+    await apiPost('api/plan/undo-double', { leftovers_meal_id: leftoversMealId });
+    await _reloadPlan();
+    showToast('Verdoppeln aufgehoben.', 'success');
+  } catch { showToast('Fehler beim Aufheben.', 'error'); }
+}
+
+export function openSwapSkippedSlot(day, mealType) {
+  // Re-use the swap modal flow by generating a temporary AI swap for the skipped slot.
+  // We create the meal first with the same recipe via AI suggestion, then remove the skipped marker.
+  swapState.mealId = null;
+  swapState.skippedSlot = { day, meal_type: mealType };
+  document.getElementById('swap-meal-name').textContent = `${DAY_LABELS[day]}, ${MEAL_LABELS[mealType]}`;
+  document.getElementById('swap-mode-section').classList.remove('hidden');
+  document.getElementById('swap-ai-section').classList.add('hidden');
+  document.getElementById('swap-recipe-section').classList.add('hidden');
+  document.getElementById('swap-back-btn').style.display = 'none';
+  document.getElementById('swap-confirm-btn').disabled = true;
+  document.querySelectorAll('#swap-reasons .option-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('swap-modal').classList.remove('hidden');
 }

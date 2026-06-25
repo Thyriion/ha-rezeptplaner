@@ -47,12 +47,22 @@ class Meal(BaseModel):
     rating: Optional[int] = None
     is_leftovers: bool = False
     source_recipe_name: Optional[str] = None
+    source_meal_id: Optional[int] = None
+    portion_multiplier: int = 1
+
+
+class SkippedSlot(BaseModel):
+    id: Optional[int] = None
+    plan_id: Optional[int] = None
+    day: str
+    meal_type: str
 
 
 class WeekPlan(BaseModel):
     id: Optional[int] = None
     week_start: str
     meals: List[Meal]
+    skipped_slots: List[SkippedSlot] = []
 
 
 class PlanMeta(BaseModel):
@@ -115,17 +125,29 @@ class ConnectionTestResponse(BaseModel):
     message: str
 
 
-class SlotMode(str, Enum):
-    normal = "normal"
-    skip = "skip"
-    leftovers = "leftovers"
+class GeneratePlanRequest(BaseModel):
+    pass
 
 
-class SlotConfig(BaseModel):
+class SkipSlotRequest(BaseModel):
+    plan_id: int
     day: str
     meal_type: str
-    mode: SlotMode = SlotMode.normal
 
 
-class GeneratePlanRequest(BaseModel):
-    slots: List[SlotConfig] = []
+class DoubleSlotRequest(BaseModel):
+    plan_id: int
+    day: str
+    meal_type: str
+
+
+class UndoDoubleRequest(BaseModel):
+    leftovers_meal_id: int
+
+
+class FillSkippedSlotRequest(BaseModel):
+    plan_id: int
+    day: str
+    meal_type: str
+    reason: Optional[str] = None
+    recipe_id: Optional[int] = None
