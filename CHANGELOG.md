@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.1 – 2026-06-29
+
+### Neue Features
+- **Hintergrundbild im Add-on**: Das Galaxy-Hintergrundbild (`/local/galaxy_bg.jpg`) wird aus der HA-Theme-Variable `--background-image` übernommen und als Hintergrund des Rezeptplaner-iFrames angezeigt. Falls das Bild nicht erreichbar ist, fällt der Hintergrund auf `#0d0e14` zurück.
+
+---
+
 ## 0.10.0 – 2026-06-29
 
 ### Neue Features
