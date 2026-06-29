@@ -1,29 +1,33 @@
-/* ── Design Tokens (HA Dark) ──────────────────────────────── */
+/* ── Galaxy / Home Assistant Theme Tokens ─────────────────── */
 :root {
-  --bg:         #0f172a;
-  --surface:    #1e293b;
-  --surface-2:  #263548;
-  --surface-3:  #2e3f55;
-  --border:     #334155;
-  --border-dim: #1e2d40;
+  /* Galaxy / Home Assistant theme aware tokens */
+  --bg:         var(--rp-ha-primary-background, #0d0e14);
+  --surface:    var(--rp-ha-card-background, rgba(30, 32, 48, 0.75));
+  --surface-2:  color-mix(in srgb, var(--surface), white 6%);
+  --surface-3:  color-mix(in srgb, var(--surface), white 12%);
+  --border:     var(--rp-ha-divider, rgba(255,255,255,0.06));
+  --border-dim: color-mix(in srgb, var(--border), transparent 50%);
 
-  --primary:    #0ea5e9;
-  --primary-hi: #38bdf8;
-  --primary-lo: #0369a1;
-  --primary-bg: rgba(14,165,233,0.12);
+  --primary:    var(--rp-ha-primary-color, #0b9e9e);
+  --accent:     var(--rp-ha-accent-color, #9b7abf);
+  --primary-hi: color-mix(in srgb, var(--primary), white 30%);
+  --primary-lo: color-mix(in srgb, var(--primary), black 30%);
+  --primary-bg: color-mix(in srgb, var(--primary), transparent 88%);
+  --accent-bg:  color-mix(in srgb, var(--accent), transparent 88%);
 
-  --text:       #e2e8f0;
-  --text-dim:   #94a3b8;
-  --text-faint: #475569;
+  --text:       var(--rp-ha-primary-text, #e8eaf6);
+  --text-dim:   var(--rp-ha-secondary-text, #7a8aaa);
+  --text-faint: color-mix(in srgb, var(--text-dim), transparent 40%);
 
-  --success:    #22c55e;
-  --danger:     #ef4444;
-  --warning:    #f59e0b;
+  --success:    var(--rp-ha-success, #0b9e9e);
+  --warning:    var(--rp-ha-warning, #c8843a);
+  --danger:     var(--rp-ha-error, #9b3a3a);
 
-  --radius:     14px;
+  --radius:     var(--rp-ha-card-radius, 14px);
   --radius-sm:  8px;
-  --shadow:     0 4px 16px rgba(0,0,0,0.4);
-  --glow:       0 0 0 1px rgba(14,165,233,0.3), 0 4px 20px rgba(14,165,233,0.1);
+  --shadow:     var(--rp-ha-card-shadow, 0 4px 24px rgba(0,0,0,0.5));
+  --glow:       0 0 0 1px color-mix(in srgb, var(--primary), transparent 70%),
+                0 4px 20px color-mix(in srgb, var(--primary), transparent 90%);
 }
 
 /* ── Reset ────────────────────────────────────────────────── */
@@ -107,9 +111,9 @@ body {
   font-family: inherit;
 }
 .tab-btn.active {
-  color: var(--primary-hi);
-  border-bottom-color: var(--primary);
-  background: var(--primary-bg);
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  background: var(--accent-bg);
 }
 .tab-btn:hover:not(.active) {
   color: var(--text-dim);
@@ -207,7 +211,7 @@ body {
   transition: border-color 0.15s;
 }
 #chat-input::placeholder { color: var(--text-faint); }
-#chat-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+#chat-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
 
 #btn-send {
   width: 40px;
@@ -392,8 +396,8 @@ body {
   align-items: center;
   gap: 6px;
   font-size: 0.82rem;
-  background: rgba(34,197,94,0.15);
-  border: 1px solid rgba(34,197,94,0.3);
+  background: color-mix(in srgb, var(--success), transparent 85%);
+  border: 1px solid color-mix(in srgb, var(--success), transparent 70%);
   color: var(--success);
   padding: 6px 16px;
   border-radius: 20px;
@@ -696,12 +700,12 @@ body {
 .timer-card.alarm .timer-card-progress { background: var(--danger); }
 
 .alarm-active {
-  background: var(--danger, #e53935) !important;
+  background: var(--danger) !important;
   animation: alarm-pulse 0.6s ease-in-out infinite alternate;
 }
 @keyframes alarm-pulse {
-  from { box-shadow: 0 0 0 0 rgba(229,57,53,0.5); }
-  to   { box-shadow: 0 0 0 10px rgba(229,57,53,0); }
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger), transparent 50%); }
+  to   { box-shadow: 0 0 0 10px color-mix(in srgb, var(--danger), transparent 100%); }
 }
 
 .cooking-nav {
@@ -771,7 +775,7 @@ body {
 .btn-success { background: var(--success); color: #fff; }
 .btn-success:hover:not(:disabled) { filter: brightness(1.1); }
 .btn-danger { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
-.btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.12); }
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger), transparent 88%); }
 .btn-sm { padding: 6px 14px; font-size: 0.8rem; }
 .btn-xs { padding: 4px 10px; font-size: 0.76rem; }
 
@@ -897,7 +901,7 @@ body {
   font-family: inherit;
   transition: all 0.15s;
 }
-.chip.active { border-color: var(--primary); background: var(--primary-bg); color: var(--primary-hi); }
+.chip.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
 .chip:hover:not(.active) { border-color: var(--primary-lo); color: var(--text); }
 
 .option-group { display: flex; gap: 7px; flex-wrap: wrap; }
@@ -914,7 +918,7 @@ body {
   text-align: left;
   transition: all 0.15s;
 }
-.option-btn.active { border-color: var(--primary); background: var(--primary-bg); color: var(--primary-hi); }
+.option-btn.active { border-color: var(--accent); background: var(--accent-bg); color: var(--accent); }
 .option-btn:hover:not(.active) { border-color: var(--border); background: var(--surface-3); color: var(--text); }
 
 .tag-input-wrap { display: flex; flex-direction: column; gap: 8px; }
@@ -956,7 +960,7 @@ body {
   transition: border-color 0.15s;
 }
 .tag-input-row input::placeholder { color: var(--text-faint); }
-.tag-input-row input:focus { border-color: var(--primary); }
+.tag-input-row input:focus { border-color: var(--accent); }
 .tag-input-row button {
   padding: 7px 14px;
   background: var(--surface-3);
@@ -1131,7 +1135,7 @@ body {
   transition: border-color 0.15s;
   resize: vertical;
 }
-.text-input:focus { border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-bg); }
+.text-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
 .text-input::placeholder { color: var(--text-faint); }
 
 .form-row-2 {
@@ -1200,7 +1204,7 @@ body {
   line-height: 1;
   flex-shrink: 0;
 }
-.remove-btn:hover { color: var(--danger); background: rgba(239,68,68,0.1); }
+.remove-btn:hover { color: var(--danger); background: color-mix(in srgb, var(--danger), transparent 90%); }
 
 /* ── Slot Config Modal ───────────────────────────────────────── */
 .slot-row {

@@ -1,0 +1,5 @@
+# Theme-Adapter für Home-Assistant-Theme-Variablen
+
+Der Rezeptplaner ist ein Home-Assistant-Add-on, das über Ingress in einem iFrame läuft. Damit das Add-on optisch zum aktiven HA-Theme passt, lesen wir beim Start die relevanten CSS-Custom-Properties aus `window.parent` und schreiben sie als eigene `--rp-ha-*`-Variablen auf das `<html>`-Element des iFrames. Der CSS-Code mappt diese Werte auf die bestehenden Design-Tokens und leitet fehlende Stufen (z. B. `--surface-2`, `--primary-hi`) mit `color-mix()` ab. Wenn das Auslesen des Parent-Fensters fehlschlägt oder das Add-on außerhalb von HA aufgerufen wird, greifen feste Galaxy-Fallbacks.
+
+Wir haben diese Variante gegen ein serverseitiges Auslesen des Themes über die HA-API abgewogen. Der Parent-Window-Ansatz ist deutlich einfacher, da das Add-on ohnehin im HA-Origin läuft, und er vermeidet, dass das Backend nur für ein visuelles Theming mit HA kommunizieren muss. Ein Nachteil bleibt: ein Theme-Wechsel während der Laufzeit wird erst nach einem Neuladen des Add-ons sichtbar. Das wurde bewusst als akzeptabel eingestuft.

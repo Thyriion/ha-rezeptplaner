@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.0 – 2026-06-29
+
+### Neue Features
+- **Galaxy Theme**: Der Rezeptplaner passt sich jetzt dem aktiven Home-Assistant-Theme an. Dazu liest `theme.js` die HA-CSS-Variablen aus `window.parent` und mapped sie auf die internen Design-Tokens.
+- **Accent-Farbe**: Die Theme-Accent-Farbe (`#9b7abf`) wird für aktive Tabs, Chips, Option-Buttons und Fokus-Ringe verwendet.
+
+### Architektur
+- **ADR-0001**: Entscheidung dokumentiert, warum der Theme-Adapter den Parent-Window-Ansatz nutzt statt eine serverseitige HA-API-Abfrage.
+
+---
+
 ## 0.8.1 – 2026-06-24
 
 ### Performance

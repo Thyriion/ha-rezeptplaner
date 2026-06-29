@@ -52,3 +52,32 @@ _Avoid_: grocery list, ingredient list
 
 **PlanStore**: The single persistence seam for all app data — plans, meals, swaps, ratings, settings, and user recipes. An injectable class with an async factory (`PlanStore.init(db_path)`). The same implementation runs against a real SQLite file in production and against SQLite `:memory:` in tests.
 _Avoid_: repository, DAO, database layer, database module
+
+### Theming
+
+**Home Assistant Theme**: A YAML-defined set of CSS custom properties that Home Assistant injects into its own UI. The Rezeptplaner does not own it, but may read selected variables when running inside HA.
+_Avoid_: app theme, UI skin
+
+**Galaxy Theme**: The specific dark, space-inspired Home Assistant Theme used by this household, defined in the HA theme YAML. It is the default visual target for the Rezeptplaner add-on.
+_Avoid_: dark mode, color scheme
+
+**Theme Variable**: A single CSS custom property exposed by Home Assistant (e.g. `--primary-color`, `--ha-card-background`). The Rezeptplaner maps a subset of these to its own design tokens, with Galaxy fallbacks for standalone use.
+_Avoid_: CSS variable (too generic), token
+
+**Accent Color**: The secondary highlight color from the Galaxy Theme (`#9b7abf`), used in the Rezeptplaner for focused controls, active tabs, and other emphasis states alongside the primary teal.
+_Avoid_: highlight color, secondary color
+
+**Success Color**: In the Galaxy Theme, the same teal as the primary color (`#0b9e9e`). The Rezeptplaner maps its success states directly to this Home Assistant theme variable.
+_Avoid_: ok color, green
+
+**Surface Stack**: The three levels of background elevation used in the Rezeptplaner UI (`--surface`, `--surface-2`, `--surface-3`). They are derived from the Galaxy Theme's single card background color rather than defined separately in the theme.
+_Avoid_: layer, elevation
+
+**Faint Text**: Very low-emphasis text used for placeholders, empty states, and inactive labels. Derived from `secondary-text-color` with reduced opacity, not from the theme's darker `disabled-text-color`, so it stays readable on dark surfaces.
+_Avoid_: muted text, hint text
+
+**Divider**: A subtle separating line in the Rezeptplaner UI. Mapped to the Home Assistant theme variable `divider-color`, with a dimmer derived variant for secondary borders.
+_Avoid_: separator, line
+
+**Theme Adapter**: A frontend module (`theme.js`) that reads the active Home Assistant theme variables from `window.parent` at startup and writes them as CSS custom properties on the Rezeptplaner iFrame root, with Galaxy fallbacks for standalone use. Theme changes at runtime require reloading the add-on.
+_Avoid_: theme service, theme provider
