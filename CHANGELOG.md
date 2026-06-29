@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.2 – 2026-06-29
+
+### Bugfixes
+- **Hintergrundbild nur bei Theme mit Bild**: Der Add-on lädt das Hintergrundbild jetzt nur, wenn das aktive HA-Theme eine `--background-image`-Variable definiert. Vorher wurde auch bei anderen Themes fest `/local/galaxy_bg.jpg` geladen.
+
+---
+
 ## 0.10.1 – 2026-06-29
 
 ### Neue Features

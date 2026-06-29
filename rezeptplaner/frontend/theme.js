@@ -25,7 +25,7 @@
     { key: 'error', sources: ['error-color'], fallback: '#9b3a3a' },
     { key: 'card-radius', sources: ['ha-card-border-radius'], fallback: '14px' },
     { key: 'card-shadow', sources: ['ha-card-box-shadow'], fallback: '0 4px 24px rgba(0,0,0,0.5)' },
-    { key: 'background-image', sources: ['background-image'], fallback: "center / cover no-repeat url('/local/galaxy_bg.jpg')" },
+    { key: 'background-image', sources: ['background-image'], fallback: 'none' },
   ];
 
   function pickValue(parentStyle, sources) {
