@@ -347,6 +347,36 @@ body {
   margin: 12px 0 7px;
 }
 
+.device-tags {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.device-tag {
+  display: inline-block;
+  background: var(--accent-bg);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 12px;
+  margin-left: 4px;
+  font-size: 0.75rem;
+}
+
+.nutrition-pending .nut-pending {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  padding: 4px 0;
+}
+.nutrition-pending .nut-pending .spinner {
+  width: 12px;
+  height: 12px;
+  border-color: rgba(255,255,255,0.2);
+  border-top-color: var(--primary);
+}
+
 .ingredients-list { list-style: none; }
 .ingredients-list li {
   display: flex;

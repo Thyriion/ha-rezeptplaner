@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections.abc import Callable
 
 import httpx
 
@@ -26,10 +27,18 @@ def _to_grams(amount: float, unit: str) -> float | None:
 
 
 class NutritionClient:
-    def __init__(self, api_key: str = "DEMO_KEY", http: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str = "DEMO_KEY",
+        http: httpx.AsyncClient | None = None,
+        cache_get: Callable[[str], dict | None] | None = None,
+        cache_set: Callable[[str, dict], None] | None = None,
+    ) -> None:
         self._api_key = api_key
         self._http = http or httpx.AsyncClient(timeout=6.0)
         self._cache: dict[str, dict | None] = {}
+        self._cache_get = cache_get
+        self._cache_set = cache_set
 
     async def enrich(self, recipe: Recipe) -> NutritionInfo | None:
         """Return NutritionInfo from USDA data, or None if insufficient data found."""
@@ -70,6 +79,11 @@ class NutritionClient:
     async def _per_100g(self, name_en: str) -> dict | None:
         if name_en in self._cache:
             return self._cache[name_en]
+        if self._cache_get is not None:
+            cached = await self._cache_get(name_en)
+            if cached is not None:
+                self._cache[name_en] = cached
+                return cached
         try:
             resp = await self._http.get(
                 USDA_SEARCH,
@@ -95,6 +109,8 @@ class NutritionClient:
                 "fat_g": fat,
             }
             self._cache[name_en] = result
+            if self._cache_set is not None:
+                await self._cache_set(name_en, result)
             return result
         except Exception:
             logger.warning("USDA lookup failed for %r", name_en)

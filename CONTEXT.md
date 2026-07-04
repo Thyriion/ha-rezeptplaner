@@ -6,6 +6,14 @@ A Home Assistant add-on that helps a household plan their weekly meals, generate
 
 ### Planning
 
+**KitchenDevice**: A household cooking appliance the user owns and wants the AI to consider when generating recipes — e.g. Airfryer, steam oven, slow cooker, Thermomix, multi-cooker, grill plate, rice cooker. Ordinary tools such as pots, pans, or a conventional oven are assumed by default and are not KitchenDevices.
+
+A KitchenDevice appears in two places in the model:
+- `available_devices` on **Settings**: the devices the household owns. The AI uses these as inspiration, not as a hard constraint.
+- `suggested_devices` on **Recipe** (optional): devices that are especially well-suited for preparing this recipe.
+
+_Avoid_: appliance, gadget, tool, equipment
+
 **WeekPlan**: A set of Meals covering one calendar week, anchored to a Monday start date. Only one WeekPlan is "current" at a time; older plans are archived.
 _Avoid_: meal plan, schedule, menu
 

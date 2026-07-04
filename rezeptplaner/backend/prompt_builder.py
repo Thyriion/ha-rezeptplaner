@@ -1,4 +1,5 @@
 from .categories import CATEGORIES
+from .devices import PREDEFINED_KITCHEN_DEVICES
 from .models import Settings
 
 MEAL_SLOTS = [
@@ -29,6 +30,7 @@ _REASON_DE = {
 }
 
 def _recipe_schema(persons: int) -> str:
+    device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
     return f"""{{
   "name": "Rezeptname",
   "cooking_time_minutes": 25,
@@ -40,7 +42,8 @@ def _recipe_schema(persons: int) -> str:
   "steps": ["Schritt 1", "Schritt 2", "Schritt 3"],
   "nutrition_per_serving": {{
     "calories": 520, "protein_g": 38, "carbs_g": 22, "fat_g": 18
-  }}
+  }},
+  "suggested_devices": ["Airfryer"]
 }}"""
 
 
@@ -57,6 +60,7 @@ class PromptBuilder:
         diet = ", ".join(settings.diet_types) or "Standard"
         dislikes = ", ".join(settings.disliked_foods) or "keine"
         favorites = ", ".join(settings.favorite_foods) or "keine Angabe"
+        devices = ", ".join(settings.available_devices) or "keine besonderen"
         lines = [
             f"Du bist ein freundlicher Kochassistent für einen deutschen Haushalt mit {settings.persons} Personen.",
             f"Ernährungsform: {diet}",
@@ -64,6 +68,7 @@ class PromptBuilder:
             f"Lieblingsgerichte/-zutaten: {favorites} — diese sollen höchstens 1× pro Woche vorkommen und als Inspiration dienen, nicht zwingend wörtlich umgesetzt werden.",
             f"Maximale Kochzeit pro Mahlzeit: {settings.max_cooking_time} Minuten",
             f"Budget: {settings.budget}",
+            f"Verfügbare Küchengeräte: {devices} — berücksichtige diese gerne, wenn ein Rezept dadurch besser oder einfacher wird. Es müssen nicht alle Geräte verwendet werden, und Rezepte für Topf/Pfanne/Backofen sind weiterhin willkommen.",
         ]
         if settings.likes_spicy:
             lines.append(
@@ -98,6 +103,7 @@ class PromptBuilder:
             f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in slots
         )
         cat_list = ", ".join(CATEGORIES)
+        device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
         return f"""Erstelle einen Wochenplan mit genau {len(slots)} Mahlzeiten für diese Slots:
 {slot_list}
 
@@ -116,6 +122,7 @@ Regeln:
 - "day": monday/tuesday/wednesday/thursday/friday/saturday/sunday
 - "meal_type": lunch oder dinner
 - "category" bei Zutaten: {cat_list}
+- "suggested_devices": leer lassen, wenn das Rezept für keine spezielle Gerät besonders geeignet ist; ansonsten nur Geräte aus dieser Liste verwenden: {device_list}
 - Alle Texte auf Deutsch
 - Genau {len(slots)} Einträge entsprechend der Slot-Liste oben
 - VIELFALT: Abwechslung bei Fleisch, Fisch, vegetarisch — nicht alles vom gleichen Typ
@@ -124,6 +131,7 @@ Regeln:
 
     def single_recipe(self, persons: int) -> str:
         cat_list = ", ".join(CATEGORIES)
+        device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
         return f"""Schlage ein einzelnes Rezept vor.
 
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
@@ -131,6 +139,7 @@ Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
 
 Regeln:
 - "category" bei Zutaten: {cat_list}
+- "suggested_devices": leer lassen, wenn das Rezept für keine spezielle Gerät besonders geeignet ist; ansonsten nur Geräte aus dieser Liste verwenden: {device_list}
 - Alle Texte auf Deutsch
 - Berücksichtige die Präferenzen aus dem System-Prompt
 """
@@ -139,6 +148,7 @@ Regeln:
              current_recipe_names: list[str] | None = None) -> str:
         reason_de = _REASON_DE.get(reason, reason)
         cat_list = ", ".join(CATEGORIES)
+        device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
         already_planned = ""
         if current_recipe_names:
             names = ", ".join(f'"{n}"' for n in current_recipe_names)
@@ -152,6 +162,7 @@ Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
 Regeln:
 - Wähle etwas komplett anderes als "{old_name}" — anderer Küchenstil, andere Hauptzutat
 - "category" bei Zutaten: {cat_list}
+- "suggested_devices": leer lassen, wenn das Rezept für keine spezielle Gerät besonders geeignet ist; ansonsten nur Geräte aus dieser Liste verwenden: {device_list}
 - Beachte die Ernährungsform und die Präferenzen aus dem System-Prompt
 - Alle Texte auf Deutsch
 - Der "name" darf KEINE Klammern, Ersatz-Hinweise oder Bezüge auf das Originalgericht enthalten — nur der saubere Rezeptname{already_planned}

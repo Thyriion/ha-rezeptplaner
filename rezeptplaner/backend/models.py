@@ -12,6 +12,7 @@ class Settings(BaseModel):
     max_cooking_time: int = 30
     budget: str = "mittel"
     likes_spicy: bool = False
+    available_devices: List[str] = []
 
 
 class Ingredient(BaseModel):
@@ -36,6 +37,8 @@ class Recipe(BaseModel):
     ingredients: List[Ingredient]
     steps: List[str]
     nutrition_per_serving: NutritionInfo
+    suggested_devices: List[str] = []
+    nutrition_enriched: bool = False
 
 
 class Meal(BaseModel):

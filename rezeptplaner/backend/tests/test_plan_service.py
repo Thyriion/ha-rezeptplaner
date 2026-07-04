@@ -1,7 +1,8 @@
 import pytest
 
 from ..database import MemoryPlanStore
-from ..models import Recipe, Ingredient, NutritionInfo
+from ..models import Recipe, Ingredient, NutritionInfo, Settings
+from ..nutrition import NutritionClient
 from ..service import PlanService
 from ..shopping import build_shopping_list
 from .conftest import FakePlannerAI
@@ -142,3 +143,57 @@ async def test_fill_skipped_slot_with_ai_replaces_skipped_marker():
     fetched = await svc.get_plan(plan.id)
     assert any(m.day == target.day and m.meal_type == target.meal_type for m in fetched.meals)
     assert not any(s.day == target.day and s.meal_type == target.meal_type for s in fetched.skipped_slots)
+
+
+@pytest.mark.asyncio
+async def test_settings_round_trips_available_devices():
+    svc = await _make_service()
+    settings = Settings(available_devices=["Airfryer", "Reiskocher"])
+    saved = await svc.update_settings(settings)
+    assert saved.available_devices == ["Airfryer", "Reiskocher"]
+
+    loaded = await svc.get_settings()
+    assert loaded.available_devices == ["Airfryer", "Reiskocher"]
+
+
+@pytest.mark.asyncio
+async def test_settings_normalizes_available_devices():
+    svc = await _make_service()
+    settings = Settings(available_devices=["airfryer", "AIRFRYER", "Reiskocher", ""])
+    saved = await svc.update_settings(settings)
+    assert saved.available_devices == ["Airfryer", "Reiskocher"]
+
+
+@pytest.mark.asyncio
+async def test_nutrition_client_uses_persistent_cache():
+    store = await MemoryPlanStore.init()
+
+    async def cache_get(name: str) -> dict | None:
+        return await store.get_usda_cache(name)
+
+    async def cache_set(name: str, value: dict) -> None:
+        await store.save_usda_cache(name, value)
+
+    recipe = Recipe(
+        name="Test",
+        cooking_time_minutes=10,
+        servings=1,
+        ingredients=[Ingredient(name="Hähnchenbrust", name_en="chicken breast", amount=100, unit="g", category="Fleisch & Fisch")],
+        steps=["braten"],
+        nutrition_per_serving=NutritionInfo(calories=0, protein_g=0, carbs_g=0, fat_g=0),
+    )
+
+    first_client = NutritionClient(cache_get=cache_get, cache_set=cache_set)
+    await first_client.enrich(recipe)
+
+    # A fresh client without in-memory cache should hit the persistent cache.
+    second_client = NutritionClient(cache_get=cache_get, cache_set=cache_set)
+    second_calls = []
+
+    async def tracking_get(name: str) -> dict | None:
+        second_calls.append(name)
+        return await store.get_usda_cache(name)
+
+    second_client._cache_get = tracking_get
+    await second_client.enrich(recipe)
+    assert "chicken breast" in second_calls

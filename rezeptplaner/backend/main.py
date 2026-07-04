@@ -32,6 +32,9 @@ from .models import (
     UserRecipe,
     WeekPlan,
 )
+from .config import load as load_config
+from .devices import PREDEFINED_KITCHEN_DEVICES
+from .nutrition import NutritionClient
 from .recipes import PlannerAI
 from .service import PlanService
 from .shopping import build_shopping_list, push_items
@@ -42,8 +45,14 @@ _service: PlanService
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _service
+    cfg = load_config()
     store = await PlanStore.init(DB_PATH)
-    _service = PlanService(store, PlannerAI())
+    nutrition = NutritionClient(
+        api_key=cfg.usda_api_key,
+        cache_get=store.get_usda_cache,
+        cache_set=store.save_usda_cache,
+    )
+    _service = PlanService(store, PlannerAI(cfg), nutrition)
     yield
 
 
@@ -56,6 +65,13 @@ app = FastAPI(root_path=ingress_path, lifespan=lifespan)
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
+
+
+# --- Kitchen Devices ---
+
+@app.get("/api/kitchen-devices")
+async def list_kitchen_devices():
+    return PREDEFINED_KITCHEN_DEVICES
 
 
 # --- Settings ---
@@ -105,6 +121,14 @@ async def get_plan():
 @app.get("/api/plan/{plan_id}", response_model=WeekPlan | None)
 async def get_plan_by_id(plan_id: int):
     plan = await _service.get_plan(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan nicht gefunden")
+    return plan
+
+
+@app.get("/api/plan/{plan_id}/nutrition", response_model=WeekPlan | None)
+async def wait_for_plan_nutrition(plan_id: int, timeout: float = 30.0):
+    plan = await _service.wait_for_nutrition(plan_id, timeout=timeout)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan nicht gefunden")
     return plan

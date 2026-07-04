@@ -17,8 +17,29 @@ export async function loadAllPlans() {
 export async function loadPlanById(planId) {
   try {
     const plan = await apiGet(`api/plan/${planId}`);
-    if (plan) { planState.plan = plan; renderPlan(); }
+    if (plan) { planState.plan = plan; renderPlan(); startNutritionPolling(planId); }
   } catch { /* silent */ }
+}
+
+function startNutritionPolling(planId) {
+  const plan = planState.plan;
+  if (!plan?.meals?.length) return;
+  const needsPolling = plan.meals.some(m => !m.is_leftovers && !m.recipe.nutrition_enriched);
+  if (!needsPolling) return;
+  pollNutrition(planId);
+}
+
+async function pollNutrition(planId) {
+  try {
+    const plan = await apiGet(`api/plan/${planId}/nutrition`);
+    if (!plan) return;
+    planState.plan = plan;
+    renderPlan();
+    const stillPending = plan.meals.some(m => !m.is_leftovers && !m.recipe.nutrition_enriched);
+    if (stillPending) {
+      setTimeout(() => pollNutrition(planId), 2000);
+    }
+  } catch { /* stop polling on error */ }
 }
 
 export async function loadRatings() {
@@ -104,6 +125,10 @@ export function renderMealCard(meal, isConfirmed) {
     <button class="btn-swap" ${disabled} onclick="event.stopPropagation(); skipSlot('${meal.day}','${meal.meal_type}')">✕ Auslassen</button>
     <button class="btn-swap" ${disabled} ${canDouble ? '' : 'disabled'} onclick="event.stopPropagation(); doubleSlot('${meal.day}','${meal.meal_type}')">×2 Verdoppeln</button>
   `;
+  const nutritionPending = !r.nutrition_enriched;
+  const deviceTags = (r.suggested_devices || []).length
+    ? `<div class="device-tags">Perfekt für: ${r.suggested_devices.map(d => `<span class="device-tag">${d}</span>`).join('')}</div>`
+    : '';
   return `<div class="plan-meal" id="meal-${meal.id}">
     <div class="plan-meal-header" onclick="toggleMeal(${meal.id})">
       <span class="meal-type-badge">${MEAL_LABELS[meal.meal_type]}</span>
@@ -121,11 +146,16 @@ export function renderMealCard(meal, isConfirmed) {
       ${stars}
     </div>
     <div class="recipe-detail">
-      <div class="nutrition-row">
+      ${deviceTags}
+      <div class="nutrition-row ${nutritionPending ? 'nutrition-pending' : ''}">
+        ${nutritionPending
+          ? '<div class="nut-item nut-pending"><span class="spinner"></span><span class="nut-label">Nährwerte werden berechnet…</span></div>'
+          : `
         <div class="nut-item"><span class="nut-value">${n.calories}</span><span class="nut-label">kcal</span></div>
         <div class="nut-item"><span class="nut-value">${n.protein_g}g</span><span class="nut-label">Protein</span></div>
         <div class="nut-item"><span class="nut-value">${n.carbs_g}g</span><span class="nut-label">Kohlenhydrate</span></div>
         <div class="nut-item"><span class="nut-value">${n.fat_g}g</span><span class="nut-label">Fett</span></div>
+          `}
       </div>
       <p class="section-label">Zutaten</p>
       <ul class="ingredients-list">${r.ingredients.map(i => `<li><span>${i.name}</span><span class="ing-amount">${amt(i)}</span></li>`).join('')}</ul>

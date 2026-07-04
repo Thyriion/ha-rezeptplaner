@@ -1,15 +1,26 @@
+import asyncio
+import logging
 from datetime import date, timedelta
 
 from .database import PlanStore
+from .devices import normalize_device
 from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
+from .nutrition import NutritionClient
 from .prompt_builder import MEAL_SLOTS
 from .recipes import PlannerAI
 
+logger = logging.getLogger(__name__)
+
 
 class PlanService:
-    def __init__(self, store: PlanStore, planner: PlannerAI) -> None:
+    def __init__(self, store: PlanStore, planner: PlannerAI, nutrition: NutritionClient | None = None) -> None:
         self._store = store
         self._planner = planner
+        self._nutrition = nutrition or NutritionClient(
+            api_key="DEMO_KEY",
+            cache_get=store.get_usda_cache,
+            cache_set=store.save_usda_cache,
+        )
 
     # ── Settings ──────────────────────────────────────────────────
 
@@ -17,6 +28,15 @@ class PlanService:
         return Settings(**(await self._store.get_settings() or {}))
 
     async def update_settings(self, settings: Settings) -> Settings:
+        seen = set()
+        normalized = []
+        for device in (settings.available_devices or []):
+            canonical = normalize_device(device)
+            key = canonical.lower()
+            if key and key not in seen:
+                seen.add(key)
+                normalized.append(canonical)
+        settings.available_devices = normalized
         await self._store.save_settings(settings)
         return settings
 
@@ -136,7 +156,9 @@ class PlanService:
             ratings=ratings,
             current_recipe_names=current_names or None,
         )
-        return await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
+        added = await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
+        self._enqueue_enrich(added.recipe, meal_id=added.id)
+        return added
 
     # ── Ratings ───────────────────────────────────────────────────
 
@@ -187,6 +209,10 @@ class PlanService:
         new_plan.skipped_slots = []
         new_plan = await self._store.save_new_plan(new_plan)
 
+        for meal in new_plan.meals:
+            if not meal.is_leftovers and meal.id:
+                self._enqueue_enrich(meal.recipe, meal_id=meal.id)
+
         normal_meals = [m for m in new_plan.meals if not m.is_leftovers]
         highlights = ", ".join(m.recipe.name for m in normal_meals[:3])
         extra = len(normal_meals) - 3
@@ -203,7 +229,9 @@ class PlanService:
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
         recent_names = await self._store.get_recent_recipe_names()
-        return await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
+        recipe = await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
+        self._enqueue_enrich(recipe)
+        return recipe
 
     async def swap_meal_with_recipe(self, meal_id: int, recipe_id: int) -> Meal:
         meal = await self._store.get_meal_by_id(meal_id)
@@ -236,7 +264,9 @@ class PlanService:
             ratings=ratings,
             current_recipe_names=current_names or None,
         )
-        return await self._store.apply_swap(meal_id, new_recipe, reason)
+        updated = await self._store.apply_swap(meal_id, new_recipe, reason)
+        self._enqueue_enrich(updated.recipe, meal_id=updated.id)
+        return updated
 
     # ── User Recipes ──────────────────────────────────────────────
 
@@ -256,3 +286,40 @@ class PlanService:
         if not await self._store.delete_user_recipe(recipe_id):
             raise LookupError("Rezept nicht gefunden")
         return True
+
+    # ── Nutrition enrichment ────────────────────────────────────────
+
+    def _enqueue_enrich(self, recipe: Recipe, meal_id: int | None = None) -> None:
+        """Start background USDA enrichment for a recipe.
+
+        If meal_id is provided, the enriched nutrition is persisted back to the
+        meal's recipe_json once it becomes available.
+        """
+        asyncio.create_task(self._enrich_and_persist(recipe, meal_id))
+
+    async def _enrich_and_persist(self, recipe: Recipe, meal_id: int | None) -> None:
+        try:
+            nutrition = await self._nutrition.enrich(recipe)
+            if nutrition is None:
+                return
+            recipe.nutrition_per_serving = nutrition
+            recipe.nutrition_enriched = True
+            if meal_id is not None:
+                await self._store.update_meal_recipe(meal_id, recipe)
+        except Exception:
+            logger.exception("Background nutrition enrichment failed")
+
+    async def wait_for_nutrition(self, plan_id: int, timeout: float = 30.0) -> WeekPlan | None:
+        """Long-polling helper: return the plan as soon as all meals have enriched nutrition."""
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            plan = await self._store.get_plan_by_id(plan_id)
+            if plan is None:
+                return None
+            if all(
+                m.recipe.nutrition_enriched or m.is_leftovers
+                for m in plan.meals
+            ):
+                return plan
+            await asyncio.sleep(1.0)
+        return await self._store.get_plan_by_id(plan_id)

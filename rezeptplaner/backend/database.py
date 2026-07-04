@@ -61,6 +61,15 @@ CREATE TABLE IF NOT EXISTS user_recipes (
     recipe_json TEXT    NOT NULL,
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS usda_cache (
+    name_en      TEXT PRIMARY KEY,
+    calories     REAL NOT NULL,
+    protein_g    REAL NOT NULL,
+    carbs_g      REAL NOT NULL,
+    fat_g        REAL NOT NULL,
+    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 _MIGRATIONS = [
@@ -75,6 +84,16 @@ _MIGRATIONS = [
         day       TEXT    NOT NULL,
         meal_type TEXT    NOT NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS usda_cache (
+        name_en      TEXT PRIMARY KEY,
+        calories     REAL NOT NULL,
+        protein_g    REAL NOT NULL,
+        carbs_g      REAL NOT NULL,
+        fat_g        REAL NOT NULL,
+        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""",
+    "UPDATE meals SET recipe_json = json_set(recipe_json, '$.nutrition_enriched', true) WHERE json_extract(recipe_json, '$.nutrition_enriched') IS NULL",
+    "UPDATE user_recipes SET recipe_json = json_set(recipe_json, '$.nutrition_enriched', true) WHERE json_extract(recipe_json, '$.nutrition_enriched') IS NULL",
 ]
 
 
@@ -410,6 +429,43 @@ class PlanStore:
             await db.execute("DELETE FROM user_recipes WHERE id = ?", (recipe_id,))
             await db.commit()
         return True
+
+    # ── USDA cache & nutrition persistence ────────────────────────────
+
+    async def get_usda_cache(self, name_en: str) -> dict | None:
+        async with self._conn() as db:
+            async with db.execute(
+                "SELECT calories, protein_g, carbs_g, fat_g FROM usda_cache WHERE name_en = ?",
+                (name_en,),
+            ) as cur:
+                row = await cur.fetchone()
+        if not row:
+            return None
+        return {"calories": row[0], "protein_g": row[1], "carbs_g": row[2], "fat_g": row[3]}
+
+    async def save_usda_cache(self, name_en: str, per_100g: dict) -> None:
+        async with self._conn() as db:
+            await db.execute(
+                """INSERT INTO usda_cache (name_en, calories, protein_g, carbs_g, fat_g, updated_at)
+                   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                   ON CONFLICT(name_en) DO UPDATE
+                   SET calories = excluded.calories,
+                       protein_g = excluded.protein_g,
+                       carbs_g = excluded.carbs_g,
+                       fat_g = excluded.fat_g,
+                       updated_at = CURRENT_TIMESTAMP""",
+                (name_en, per_100g["calories"], per_100g["protein_g"],
+                 per_100g["carbs_g"], per_100g["fat_g"]),
+            )
+            await db.commit()
+
+    async def update_meal_recipe(self, meal_id: int, recipe: Recipe) -> None:
+        async with self._conn() as db:
+            await db.execute(
+                "UPDATE meals SET recipe_json = ? WHERE id = ?",
+                (recipe.model_dump_json(), meal_id),
+            )
+            await db.commit()
 
     # ── Private ───────────────────────────────────────────────────────
 

@@ -18,7 +18,7 @@ import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          confirmAddToPlan, checkAddToPlanReady } from './chat.js';
 import { showWizard, updateWizardStep, wizardBack, wizardNext, adjustPersons,
          openSettings, closeSettings, saveSettings, adjustSettingsPersons,
-         addTag, removeTag, tagKeydown } from './settings.js';
+         addTag, removeTag, tagKeydown, loadKitchenDevices, toggleDeviceChip } from './settings.js';
 
 // ── Toast ─────────────────────────────────────────────────────────
 
@@ -46,6 +46,7 @@ export function switchTab(tab) {
 
 async function init() {
   try {
+    await loadKitchenDevices();
     const s = await apiGet('api/settings');
     if (!s || s.persons === undefined) { showWizard(); return; }
     planState.settings = s;
@@ -77,7 +78,7 @@ Object.assign(window, {
   // settings
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,
-  addTag, removeTag, tagKeydown,
+  addTag, removeTag, tagKeydown, toggleDeviceChip,
   // my recipes
   toggleUserRecipe, openRecipeForm, closeRecipeForm,
   saveUserRecipe, deleteUserRecipeById, editUserRecipeById, addIngredientRow, addStepRow,

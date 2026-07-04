@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import re
@@ -7,7 +6,6 @@ from datetime import date, timedelta
 from .ai_client import get_client
 from .config import AppConfig, load
 from .models import Meal, Recipe, Settings, WeekPlan
-from .nutrition import NutritionClient
 from .prompt_builder import MEAL_SLOTS, PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -21,18 +19,12 @@ def _parse_json(content: str) -> dict:
 
 
 class PlannerAI:
-    def __init__(self, cfg: AppConfig | None = None, nutrition: NutritionClient | None = None) -> None:
+    def __init__(self, cfg: AppConfig | None = None) -> None:
         self._cfg = cfg or load()
         self._prompts = PromptBuilder()
-        self._nutrition = nutrition or NutritionClient(api_key=self._cfg.usda_api_key)
 
     def _client(self) -> tuple:
         return get_client(self._cfg)
-
-    async def _enrich(self, recipe: Recipe) -> None:
-        nutrition = await self._nutrition.enrich(recipe)
-        if nutrition:
-            recipe.nutrition_per_serving = nutrition
 
     async def generate_plan(
         self,
@@ -60,7 +52,6 @@ class PlannerAI:
             Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
             for m in data["meals"]
         ]
-        await asyncio.gather(*[self._enrich(m.recipe) for m in meals])
         today = date.today()
         monday = today - timedelta(days=today.weekday())
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
@@ -85,7 +76,6 @@ class PlannerAI:
         raw = response.choices[0].message.content or ""
         logger.debug("generate_single_recipe raw response: %s", raw[:500])
         recipe = Recipe.model_validate(_parse_json(raw))
-        await self._enrich(recipe)
         return recipe
 
     async def replace_meal(
@@ -115,7 +105,6 @@ class PlannerAI:
         raw = response.choices[0].message.content or ""
         logger.debug("replace_meal raw response: %s", raw[:500])
         recipe = Recipe.model_validate(_parse_json(raw))
-        await self._enrich(recipe)
         return recipe
 
     async def chat(

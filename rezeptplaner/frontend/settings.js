@@ -1,8 +1,10 @@
 'use strict';
 
-import { apiPost } from './api.js';
+import { apiGet, apiPost } from './api.js';
 import { planState, wizardState } from './state.js';
 import { showToast } from './app.js';
+
+let predefinedDevices = [];
 
 // ── Wizard ────────────────────────────────────────────────────────
 
@@ -58,6 +60,26 @@ export function adjustPersons(d) {
 
 // ── Settings Modal ────────────────────────────────────────────────
 
+export async function loadKitchenDevices() {
+  try {
+    predefinedDevices = await apiGet('api/kitchen-devices');
+  } catch {
+    predefinedDevices = [];
+  }
+}
+
+function renderDeviceChips(selected) {
+  const container = document.getElementById('settings-device-chips');
+  if (!container) return;
+  container.innerHTML = predefinedDevices.map(device =>
+    `<button type="button" class="chip ${selected.includes(device) ? 'active' : ''}" data-value="${device}" onclick="toggleDeviceChip(this)">${device}</button>`
+  ).join('');
+}
+
+export function toggleDeviceChip(btn) {
+  btn.classList.toggle('active');
+}
+
 export function openSettings() {
   const s = planState.settings || {};
   document.getElementById('settings-persons-display').textContent = s.persons || 2;
@@ -75,6 +97,10 @@ export function openSettings() {
   document.querySelectorAll('#settings-spicy-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === String(s.likes_spicy ?? false))
   );
+  const selectedDevices = s.available_devices || [];
+  renderDeviceChips(selectedDevices);
+  const customDevices = selectedDevices.filter(d => !predefinedDevices.includes(d));
+  renderTagList('settings-device', customDevices);
   document.getElementById('settings-modal').classList.remove('hidden');
 }
 
@@ -86,6 +112,7 @@ export function adjustSettingsPersons(d) {
 }
 
 export async function saveSettings() {
+  const selectedPredefined = [...document.querySelectorAll('#settings-device-chips .chip.active')].map(c => c.dataset.value);
   const saved = await apiPost('api/settings', {
     persons: parseInt(document.getElementById('settings-persons-display').textContent),
     diet_types: [...document.querySelectorAll('#settings-diet-chips .chip.active')].map(c => c.dataset.value),
@@ -94,6 +121,7 @@ export async function saveSettings() {
     max_cooking_time: parseInt(document.querySelector('#settings-time-options .option-btn.active')?.dataset.value || 30),
     budget: document.querySelector('#settings-budget-options .option-btn.active')?.dataset.value || 'mittel',
     likes_spicy: document.querySelector('#settings-spicy-options .option-btn.active')?.dataset.value === 'true',
+    available_devices: [...selectedPredefined, ...getTagValues('settings-device')],
   }).catch(() => null);
   if (saved) { planState.settings = saved; closeSettings(); showToast('Einstellungen gespeichert!', 'success'); }
   else showToast('Fehler beim Speichern.', 'error');
