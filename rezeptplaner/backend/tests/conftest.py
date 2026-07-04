@@ -21,7 +21,8 @@ class FakePlannerAI:
     """Deterministic stand-in for PlannerAI — never calls the AI API."""
 
     async def generate_plan(self, settings, recent_swaps, ratings=None,
-                            recent_recipe_names=None, slots=None) -> WeekPlan:
+                            recent_recipe_names=None, slots=None,
+                            user_recipes=None) -> WeekPlan:
         effective_slots = slots if slots is not None else list(MEAL_SLOTS)
         today = date.today()
         monday = today - timedelta(days=today.weekday())
@@ -32,13 +33,15 @@ class FakePlannerAI:
         return WeekPlan(week_start=monday.isoformat(), meals=meals)
 
     async def generate_single_recipe(self, settings, recent_swaps,
-                                     ratings=None, recent_recipe_names=None) -> Recipe:
+                                     ratings=None, recent_recipe_names=None,
+                                     user_recipes=None) -> Recipe:
         return _make_recipe("Einzelrezept")
 
     async def replace_meal(self, old_recipe_name, reason, day, meal_type,
                            settings, recent_swaps, ratings=None,
-                           current_recipe_names=None) -> Recipe:
+                           current_recipe_names=None, user_recipes=None) -> Recipe:
         return _make_recipe(f"Ersatz für {old_recipe_name}")
 
-    async def chat(self, message, settings, current_plan, recent_swaps):
+    async def chat(self, message, settings, current_plan, recent_swaps,
+                   user_recipes=None):
         return "Kein Problem!", False

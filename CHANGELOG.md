@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.12.0 – 2026-07-04
+
+### Neue Features
+- **Eigene Rezepte werden nicht mehr nachgebaut**: Wenn die KI einen Rezeptnamen vorschlägt, der normalisiert mit einem gespeicherten `UserRecipe` übereinstimmt, wird automatisch das gespeicherte Original verwendet. Betrifft Wochenplan, Tauschen, ausgelassene Slots, einzelne Rezeptvorschläge und Chat.
+- **Schutz vor doppelten Rezeptnamen**: Beim Speichern oder Bearbeiten eines eigenen Rezepts wird geprüft, ob der normalisierte Name bereits existiert (z. B. „One-Pot Pasta“ vs. „One Pot-Pasta“). API-Endpunkte geben bei Konflikten `409 Conflict` zurück.
+
+### Architektur
+- Neue `normalize.py` mit `normalize_recipe_name()` für konsistente Rezeptnamen-Matches.
+- `CONTEXT.md` erweitert: `UserRecipe` definiert jetzt den Originalvorlagen-Schutz.
+
+---
+
 ## 0.10.2 – 2026-06-29
 
 ### Bugfixes

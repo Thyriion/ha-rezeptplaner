@@ -273,7 +273,10 @@ async def list_user_recipes():
 
 @app.post("/api/user-recipes", response_model=UserRecipe)
 async def create_user_recipe(recipe: Recipe):
-    return await _service.create_user_recipe(recipe)
+    try:
+        return await _service.create_user_recipe(recipe)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.put("/api/user-recipes/{recipe_id}", response_model=UserRecipe)
@@ -282,6 +285,8 @@ async def edit_user_recipe(recipe_id: int, recipe: Recipe):
         return await _service.edit_user_recipe(recipe_id, recipe)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.delete("/api/user-recipes/{recipe_id}")

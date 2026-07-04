@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from .database import PlanStore
 from .devices import normalize_device
 from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
+from .normalize import normalize_recipe_name
 from .nutrition import NutritionClient
 from .prompt_builder import MEAL_SLOTS
 from .recipes import PlannerAI
@@ -21,6 +22,12 @@ class PlanService:
             cache_get=store.get_usda_cache,
             cache_set=store.save_usda_cache,
         )
+
+    @staticmethod
+    def _eligible_user_recipes(
+        user_recipes: list[UserRecipe], ratings: dict[str, int]
+    ) -> list[UserRecipe]:
+        return [ur for ur in user_recipes if ratings.get(ur.recipe.name, 5) >= 3]
 
     # ── Settings ──────────────────────────────────────────────────
 
@@ -146,6 +153,9 @@ class PlanService:
         settings = await self.get_settings()
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
+        user_recipes = self._eligible_user_recipes(
+            await self._store.get_user_recipes(), ratings
+        )
         new_recipe = await self._planner.replace_meal(
             old_recipe_name="",
             reason=reason or "sonstiges",
@@ -155,6 +165,7 @@ class PlanService:
             recent_swaps=recent_swaps,
             ratings=ratings,
             current_recipe_names=current_names or None,
+            user_recipes=user_recipes,
         )
         added = await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
         self._enqueue_enrich(added.recipe, meal_id=added.id)
@@ -174,7 +185,13 @@ class PlanService:
         settings = await self.get_settings()
         recent_swaps = await self._store.get_recent_swaps()
         current_plan = await self._store.get_current_plan()
-        reply, wants_plan = await self._planner.chat(message, settings, current_plan, recent_swaps)
+        ratings = await self._store.get_ratings()
+        user_recipes = self._eligible_user_recipes(
+            await self._store.get_user_recipes(), ratings
+        )
+        reply, wants_plan = await self._planner.chat(
+            message, settings, current_plan, recent_swaps, user_recipes=user_recipes
+        )
         if not wants_plan:
             return reply, None
         return await self._generate_and_save_plan()
@@ -187,10 +204,14 @@ class PlanService:
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
         recent_names = await self._store.get_recent_recipe_names()
+        user_recipes = self._eligible_user_recipes(
+            await self._store.get_user_recipes(), ratings
+        )
 
         new_plan = await self._planner.generate_plan(
             settings, recent_swaps, ratings, recent_names,
             slots=list(MEAL_SLOTS),
+            user_recipes=user_recipes,
         )
 
         # Sort by MEAL_SLOTS order
@@ -229,7 +250,12 @@ class PlanService:
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
         recent_names = await self._store.get_recent_recipe_names()
-        recipe = await self._planner.generate_single_recipe(settings, recent_swaps, ratings, recent_names)
+        user_recipes = self._eligible_user_recipes(
+            await self._store.get_user_recipes(), ratings
+        )
+        recipe = await self._planner.generate_single_recipe(
+            settings, recent_swaps, ratings, recent_names, user_recipes=user_recipes
+        )
         self._enqueue_enrich(recipe)
         return recipe
 
@@ -254,6 +280,9 @@ class PlanService:
         settings = await self.get_settings()
         recent_swaps = await self._store.get_recent_swaps()
         ratings = await self._store.get_ratings()
+        user_recipes = self._eligible_user_recipes(
+            await self._store.get_user_recipes(), ratings
+        )
         new_recipe = await self._planner.replace_meal(
             old_recipe_name=meal.recipe.name,
             reason=reason,
@@ -263,6 +292,7 @@ class PlanService:
             recent_swaps=recent_swaps,
             ratings=ratings,
             current_recipe_names=current_names or None,
+            user_recipes=user_recipes,
         )
         updated = await self._store.apply_swap(meal_id, new_recipe, reason)
         self._enqueue_enrich(updated.recipe, meal_id=updated.id)

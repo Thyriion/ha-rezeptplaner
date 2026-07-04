@@ -37,7 +37,7 @@ _Avoid_: dish, food item
 **Ingredient**: One item in a Recipe's ingredient list, with a German name, an optional English name (used for nutrition lookup), amount, unit, and category. Categories are a fixed vocabulary: Gemüse & Obst, Fleisch & Fisch, Milchprodukte & Eier, Getreide & Backwaren, Konserven & Trockenwaren, Gewürze & Öle, Sonstiges.
 _Avoid_: item, food, component
 
-**UserRecipe**: A Recipe saved manually by the user, independent of AI generation. Can be placed into a WeekPlan via a swap.
+**UserRecipe**: A Recipe saved manually by the user, independent of AI generation. Can be placed into a WeekPlan via a swap. When the AI suggests a recipe whose normalized name matches a UserRecipe with Rating ≥ 3, the stored UserRecipe must be used verbatim instead of being rebuilt.
 _Avoid_: saved recipe, custom recipe, favourite
 
 ### Feedback & Preferences

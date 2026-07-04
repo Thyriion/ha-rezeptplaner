@@ -2,6 +2,13 @@ from .categories import CATEGORIES
 from .devices import PREDEFINED_KITCHEN_DEVICES
 from .models import Settings
 
+
+def _user_recipes_block(names: list[str]) -> str:
+    if not names:
+        return ""
+    lines = ["\nEigene Rezepte im Haushalt — wenn du eines dieser Gerichte vorschlägst, verwende EXAKT das gespeicherte Rezept (Zutaten, Mengen, Schritte). Baue es nicht neu:", *[f"  - {name}" for name in names], ""]
+    return "\n".join(lines)
+
 MEAL_SLOTS = [
     ("monday",    "dinner"),
     ("tuesday",   "dinner"),
@@ -56,6 +63,7 @@ class PromptBuilder:
         recent_swaps: list[dict],
         ratings: dict[str, int] | None = None,
         recent_recipe_names: list[str] | None = None,
+        user_recipe_names: list[str] | None = None,
     ) -> str:
         diet = ", ".join(settings.diet_types) or "Standard"
         dislikes = ", ".join(settings.disliked_foods) or "keine"
@@ -96,17 +104,21 @@ class PromptBuilder:
                 lines.append("\nDiese Gerichte wurden sehr gut bewertet — gerne öfter einplanen:")
                 for name in preferred:
                     lines.append(f"  - {name}")
+        if user_recipe_names:
+            lines.append(_user_recipes_block(user_recipe_names))
         return "\n".join(lines)
 
-    def plan(self, slots: list[tuple[str, str]], persons: int) -> str:
+    def plan(self, slots: list[tuple[str, str]], persons: int,
+             user_recipe_names: list[str] | None = None) -> str:
         slot_list = "\n".join(
             f"- {_DAY_DE[day]}, {_MEAL_DE[mtype]}" for day, mtype in slots
         )
         cat_list = ", ".join(CATEGORIES)
         device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
+        user_recipes = _user_recipes_block(user_recipe_names or [])
         return f"""Erstelle einen Wochenplan mit genau {len(slots)} Mahlzeiten für diese Slots:
 {slot_list}
-
+{user_recipes}
 Antworte ausschließlich mit folgendem JSON-Format (kein Text drumherum):
 {{
   "meals": [
@@ -129,11 +141,12 @@ Regeln:
 - Lieblingsgerichte/-zutaten höchstens 1× einbauen und zufällig auf verschiedene Wochentage verteilen
 """
 
-    def single_recipe(self, persons: int) -> str:
+    def single_recipe(self, persons: int, user_recipe_names: list[str] | None = None) -> str:
         cat_list = ", ".join(CATEGORIES)
         device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
+        user_recipes = _user_recipes_block(user_recipe_names or [])
         return f"""Schlage ein einzelnes Rezept vor.
-
+{user_recipes}
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
 {_recipe_schema(persons)}
 
@@ -145,7 +158,8 @@ Regeln:
 """
 
     def swap(self, old_name: str, reason: str, day: str, meal_type: str, persons: int,
-             current_recipe_names: list[str] | None = None) -> str:
+             current_recipe_names: list[str] | None = None,
+             user_recipe_names: list[str] | None = None) -> str:
         reason_de = _REASON_DE.get(reason, reason)
         cat_list = ", ".join(CATEGORIES)
         device_list = ", ".join(PREDEFINED_KITCHEN_DEVICES)
@@ -153,9 +167,10 @@ Regeln:
         if current_recipe_names:
             names = ", ".join(f'"{n}"' for n in current_recipe_names)
             already_planned = f"\n- Diese Gerichte sind bereits diese Woche eingeplant — NICHT vorschlagen: {names}"
+        user_recipes = _user_recipes_block(user_recipe_names or [])
         return f"""Ersetze das Gericht "{old_name}" für {_DAY_DE[day]} ({_MEAL_DE[meal_type]}).
 Grund: {reason_de}
-
+{user_recipes}
 Antworte ausschließlich mit einem JSON-Objekt in diesem Format:
 {_recipe_schema(persons)}
 

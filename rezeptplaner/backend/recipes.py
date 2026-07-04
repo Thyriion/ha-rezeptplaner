@@ -5,7 +5,8 @@ from datetime import date, timedelta
 
 from .ai_client import get_client
 from .config import AppConfig, load
-from .models import Meal, Recipe, Settings, WeekPlan
+from .models import Meal, Recipe, Settings, UserRecipe, WeekPlan
+from .normalize import normalize_recipe_name
 from .prompt_builder import MEAL_SLOTS, PromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,29 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 def _parse_json(content: str) -> dict:
     clean = _THINK_RE.sub("", content).strip()
     return json.loads(clean)
+
+
+def _build_user_recipe_lookup(user_recipes: list[UserRecipe] | None) -> dict[str, UserRecipe]:
+    if not user_recipes:
+        return {}
+    lookup: dict[str, UserRecipe] = {}
+    for ur in user_recipes:
+        key = normalize_recipe_name(ur.recipe.name)
+        if key:
+            lookup[key] = ur
+    return lookup
+
+
+def _replace_with_user_recipe(
+    recipe: Recipe, lookup: dict[str, UserRecipe]
+) -> Recipe:
+    if not lookup:
+        return recipe
+    key = normalize_recipe_name(recipe.name)
+    user_recipe = lookup.get(key)
+    if user_recipe is None:
+        return recipe
+    return user_recipe.recipe
 
 
 class PlannerAI:
@@ -33,14 +57,17 @@ class PlannerAI:
         ratings: dict[str, int] | None = None,
         recent_recipe_names: list[str] | None = None,
         slots: list[tuple[str, str]] | None = None,
+        user_recipes: list[UserRecipe] | None = None,
     ) -> WeekPlan:
         effective_slots = slots if slots is not None else MEAL_SLOTS
+        lookup = _build_user_recipe_lookup(user_recipes)
+        user_recipe_names = [ur.recipe.name for ur in (user_recipes or [])]
         client, model = self._client()
         response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings, recent_recipe_names)},
-                {"role": "user", "content": self._prompts.plan(effective_slots, settings.persons)},
+                {"role": "user", "content": self._prompts.plan(effective_slots, settings.persons, user_recipe_names)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
@@ -49,7 +76,11 @@ class PlannerAI:
         logger.debug("generate_plan raw response: %s", raw[:500])
         data = _parse_json(raw)
         meals = [
-            Meal(day=m["day"], meal_type=m["meal_type"], recipe=Recipe.model_validate(m["recipe"]))
+            Meal(
+                day=m["day"],
+                meal_type=m["meal_type"],
+                recipe=_replace_with_user_recipe(Recipe.model_validate(m["recipe"]), lookup),
+            )
             for m in data["meals"]
         ]
         today = date.today()
@@ -62,13 +93,16 @@ class PlannerAI:
         recent_swaps: list[dict],
         ratings: dict[str, int] | None = None,
         recent_recipe_names: list[str] | None = None,
+        user_recipes: list[UserRecipe] | None = None,
     ) -> Recipe:
+        lookup = _build_user_recipe_lookup(user_recipes)
+        user_recipe_names = [ur.recipe.name for ur in (user_recipes or [])]
         client, model = self._client()
         response = await client.chat.completions.create(
             model=model,
             messages=[
                 {"role": "system", "content": self._prompts.system(settings, recent_swaps, ratings, recent_recipe_names)},
-                {"role": "user", "content": self._prompts.single_recipe(settings.persons)},
+                {"role": "user", "content": self._prompts.single_recipe(settings.persons, user_recipe_names)},
             ],
             response_format={"type": "json_object"},
             temperature=0.95,
@@ -76,7 +110,7 @@ class PlannerAI:
         raw = response.choices[0].message.content or ""
         logger.debug("generate_single_recipe raw response: %s", raw[:500])
         recipe = Recipe.model_validate(_parse_json(raw))
-        return recipe
+        return _replace_with_user_recipe(recipe, lookup)
 
     async def replace_meal(
         self,
@@ -88,7 +122,10 @@ class PlannerAI:
         recent_swaps: list[dict],
         ratings: dict[str, int] | None = None,
         current_recipe_names: list[str] | None = None,
+        user_recipes: list[UserRecipe] | None = None,
     ) -> Recipe:
+        lookup = _build_user_recipe_lookup(user_recipes)
+        user_recipe_names = [ur.recipe.name for ur in (user_recipes or [])]
         client, model = self._client()
         response = await client.chat.completions.create(
             model=model,
@@ -97,6 +134,7 @@ class PlannerAI:
                 {"role": "user", "content": self._prompts.swap(
                     old_recipe_name, reason, day, meal_type, settings.persons,
                     current_recipe_names=current_recipe_names,
+                    user_recipe_names=user_recipe_names,
                 )},
             ],
             response_format={"type": "json_object"},
@@ -105,7 +143,7 @@ class PlannerAI:
         raw = response.choices[0].message.content or ""
         logger.debug("replace_meal raw response: %s", raw[:500])
         recipe = Recipe.model_validate(_parse_json(raw))
-        return recipe
+        return _replace_with_user_recipe(recipe, lookup)
 
     async def chat(
         self,
@@ -113,9 +151,11 @@ class PlannerAI:
         settings: Settings,
         current_plan: WeekPlan | None,
         recent_swaps: list[dict],
+        user_recipes: list[UserRecipe] | None = None,
     ) -> tuple[str, bool]:
+        user_recipe_names = [ur.recipe.name for ur in (user_recipes or [])]
         client, model = self._client()
-        system = self._prompts.system(settings, recent_swaps)
+        system = self._prompts.system(settings, recent_swaps, user_recipe_names=user_recipe_names)
         if current_plan:
             from .prompt_builder import _DAY_DE, _MEAL_DE
             lines = [f"Aktueller Wochenplan (ab {current_plan.week_start}):"]

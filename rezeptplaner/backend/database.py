@@ -7,6 +7,7 @@ from pathlib import Path
 import aiosqlite
 
 from .models import Meal, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
+from .normalize import normalize_recipe_name
 
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/rezeptplaner.db"))
 
@@ -379,6 +380,26 @@ class PlanStore:
 
     # ── User Recipes ──────────────────────────────────────────────────
 
+    async def _user_recipe_name_exists(
+        self, normalized_name: str, exclude_id: int | None = None
+    ) -> bool:
+        async with self._conn() as db:
+            if exclude_id is not None:
+                async with db.execute(
+                    "SELECT id, recipe_json FROM user_recipes WHERE id != ?", (exclude_id,)
+                ) as cur:
+                    rows = await cur.fetchall()
+            else:
+                async with db.execute(
+                    "SELECT id, recipe_json FROM user_recipes"
+                ) as cur:
+                    rows = await cur.fetchall()
+        for row in rows:
+            existing = Recipe.model_validate_json(row[1])
+            if normalize_recipe_name(existing.name) == normalized_name:
+                return True
+        return False
+
     async def get_user_recipes(self) -> list[UserRecipe]:
         async with self._conn() as db:
             async with db.execute(
@@ -398,6 +419,9 @@ class PlanStore:
         return UserRecipe(id=row[0], recipe=Recipe.model_validate_json(row[1]))
 
     async def save_user_recipe(self, recipe: Recipe) -> UserRecipe:
+        normalized = normalize_recipe_name(recipe.name)
+        if normalized and await self._user_recipe_name_exists(normalized):
+            raise ValueError(f"Ein eigenes Rezept mit dem Namen '{recipe.name}' existiert bereits.")
         async with self._conn() as db:
             cur = await db.execute(
                 "INSERT INTO user_recipes (recipe_json) VALUES (?)", (recipe.model_dump_json(),)
@@ -412,6 +436,10 @@ class PlanStore:
             ) as cur:
                 if not await cur.fetchone():
                     return None
+        normalized = normalize_recipe_name(recipe.name)
+        if normalized and await self._user_recipe_name_exists(normalized, exclude_id=recipe_id):
+            raise ValueError(f"Ein eigenes Rezept mit dem Namen '{recipe.name}' existiert bereits.")
+        async with self._conn() as db:
             await db.execute(
                 "UPDATE user_recipes SET recipe_json = ? WHERE id = ?",
                 (recipe.model_dump_json(), recipe_id),
