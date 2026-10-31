@@ -24,6 +24,8 @@ def _norm_unit(unit: str) -> str:
 
 
 def _fmt(amount: float, unit: str) -> str:
+    if not amount:
+        return unit
     n = int(amount) if amount == int(amount) else amount
     return f"{n} {unit}".strip() if unit else str(n)
 

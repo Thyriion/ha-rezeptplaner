@@ -1,7 +1,7 @@
 name: Rezeptplaner
-version: "0.12.0"
+version: "0.13.0"
 slug: rezeptplaner
-description: KI-gestützter Wochenrezeptplaner
+description: Wochenrezeptplaner mit lokalem Rezeptkatalog
 url: https://github.com/Thyriion/ha-rezeptplaner
 arch:
   - aarch64
@@ -14,13 +14,5 @@ panel_title: Rezeptplaner
 homeassistant_api: true
 map:
   - data
-options:
-  ai_base_url: "https://api.mistral.ai/v1"
-  ai_model: "mistral-small-latest"
-  ai_api_key: ""
-  usda_api_key: "DEMO_KEY"
-schema:
-  ai_base_url: str
-  ai_model: str
-  ai_api_key: password
-  usda_api_key: str
+options: {}
+schema: {}

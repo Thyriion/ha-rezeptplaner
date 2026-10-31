@@ -6,8 +6,10 @@ from pathlib import Path
 
 import aiosqlite
 
+from .catalog import CatalogEntry
 from .models import Meal, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
 from .normalize import normalize_recipe_name
+from .selector import Candidate
 
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/rezeptplaner.db"))
 
@@ -63,13 +65,26 @@ CREATE TABLE IF NOT EXISTS user_recipes (
     created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS usda_cache (
-    name_en      TEXT PRIMARY KEY,
-    calories     REAL NOT NULL,
-    protein_g    REAL NOT NULL,
-    carbs_g      REAL NOT NULL,
-    fat_g        REAL NOT NULL,
-    updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE IF NOT EXISTS catalog_recipes (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_url       TEXT    NOT NULL UNIQUE,
+    name             TEXT    NOT NULL,
+    cooking_time     INTEGER NOT NULL,
+    protein_type     TEXT    NOT NULL,
+    is_vegetarian    INTEGER NOT NULL,
+    is_vegan         INTEGER NOT NULL,
+    is_spicy         INTEGER NOT NULL,
+    protein_g        REAL    NOT NULL DEFAULT 0,
+    carbs_g          REAL    NOT NULL DEFAULT 0,
+    devices          TEXT    NOT NULL DEFAULT '[]',
+    ingredients_text TEXT    NOT NULL,
+    recipe_json      TEXT    NOT NULL,
+    imported_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS catalog_skipped (
+    source_url TEXT PRIMARY KEY,
+    reason     TEXT NOT NULL
 );
 """
 
@@ -85,16 +100,6 @@ _MIGRATIONS = [
         day       TEXT    NOT NULL,
         meal_type TEXT    NOT NULL
     )""",
-    """CREATE TABLE IF NOT EXISTS usda_cache (
-        name_en      TEXT PRIMARY KEY,
-        calories     REAL NOT NULL,
-        protein_g    REAL NOT NULL,
-        carbs_g      REAL NOT NULL,
-        fat_g        REAL NOT NULL,
-        updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )""",
-    "UPDATE meals SET recipe_json = json_set(recipe_json, '$.nutrition_enriched', true) WHERE json_extract(recipe_json, '$.nutrition_enriched') IS NULL",
-    "UPDATE user_recipes SET recipe_json = json_set(recipe_json, '$.nutrition_enriched', true) WHERE json_extract(recipe_json, '$.nutrition_enriched') IS NULL",
 ]
 
 
@@ -458,42 +463,70 @@ class PlanStore:
             await db.commit()
         return True
 
-    # ── USDA cache & nutrition persistence ────────────────────────────
+    # ── Recipe catalog ────────────────────────────────────────────────
 
-    async def get_usda_cache(self, name_en: str) -> dict | None:
+    async def catalog_count(self) -> int:
+        async with self._conn() as db:
+            async with db.execute("SELECT COUNT(*) FROM catalog_recipes") as cur:
+                return (await cur.fetchone())[0]
+
+    async def catalog_known_urls(self) -> set[str]:
         async with self._conn() as db:
             async with db.execute(
-                "SELECT calories, protein_g, carbs_g, fat_g FROM usda_cache WHERE name_en = ?",
-                (name_en,),
+                "SELECT source_url FROM catalog_recipes UNION SELECT source_url FROM catalog_skipped"
             ) as cur:
-                row = await cur.fetchone()
-        if not row:
-            return None
-        return {"calories": row[0], "protein_g": row[1], "carbs_g": row[2], "fat_g": row[3]}
+                return {r[0] for r in await cur.fetchall()}
 
-    async def save_usda_cache(self, name_en: str, per_100g: dict) -> None:
+    async def catalog_add(self, entry: CatalogEntry) -> None:
+        r = entry.recipe
         async with self._conn() as db:
             await db.execute(
-                """INSERT INTO usda_cache (name_en, calories, protein_g, carbs_g, fat_g, updated_at)
-                   VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                   ON CONFLICT(name_en) DO UPDATE
-                   SET calories = excluded.calories,
-                       protein_g = excluded.protein_g,
-                       carbs_g = excluded.carbs_g,
-                       fat_g = excluded.fat_g,
-                       updated_at = CURRENT_TIMESTAMP""",
-                (name_en, per_100g["calories"], per_100g["protein_g"],
-                 per_100g["carbs_g"], per_100g["fat_g"]),
+                """INSERT OR IGNORE INTO catalog_recipes
+                   (source_url, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
+                    protein_g, carbs_g, devices, ingredients_text, recipe_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (entry.source_url, r.name, r.cooking_time_minutes, entry.protein_type,
+                 int(entry.is_vegetarian), int(entry.is_vegan), int(entry.is_spicy),
+                 r.nutrition_per_serving.protein_g, r.nutrition_per_serving.carbs_g,
+                 json.dumps(r.suggested_devices), entry.ingredients_text, r.model_dump_json()),
             )
             await db.commit()
 
-    async def update_meal_recipe(self, meal_id: int, recipe: Recipe) -> None:
+    async def catalog_mark_skipped(self, source_url: str, reason: str) -> None:
         async with self._conn() as db:
             await db.execute(
-                "UPDATE meals SET recipe_json = ? WHERE id = ?",
-                (recipe.model_dump_json(), meal_id),
+                "INSERT OR REPLACE INTO catalog_skipped (source_url, reason) VALUES (?, ?)",
+                (source_url, reason),
             )
             await db.commit()
+
+    async def catalog_candidates(self) -> list[Candidate]:
+        """Lightweight rows for selection; full recipes are loaded only for the picks."""
+        async with self._conn() as db:
+            async with db.execute(
+                """SELECT id, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
+                          protein_g, carbs_g, devices, ingredients_text FROM catalog_recipes"""
+            ) as cur:
+                rows = await cur.fetchall()
+        return [
+            Candidate(
+                key=f"c:{r[0]}", name=r[1], cooking_time=r[2], protein_type=r[3],
+                is_vegetarian=bool(r[4]), is_vegan=bool(r[5]), is_spicy=bool(r[6]),
+                protein_g=r[7], carbs_g=r[8], devices=json.loads(r[9]), ingredients_text=r[10],
+            )
+            for r in rows
+        ]
+
+    async def catalog_get_recipes(self, ids: list[int]) -> dict[int, Recipe]:
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        async with self._conn() as db:
+            async with db.execute(
+                f"SELECT id, recipe_json FROM catalog_recipes WHERE id IN ({marks})", ids
+            ) as cur:
+                rows = await cur.fetchall()
+        return {r[0]: Recipe.model_validate_json(r[1]) for r in rows}
 
     # ── Private ───────────────────────────────────────────────────────
 

@@ -1,21 +1,14 @@
 import pytest
 
-from ..database import MemoryPlanStore
-from ..models import Recipe, Ingredient, NutritionInfo, Settings
-from ..nutrition import NutritionClient
-from ..service import PlanService
+from ..models import Ingredient, NutritionInfo, Recipe, Settings
+from ..service import CatalogEmpty
 from ..shopping import build_shopping_list
-from .conftest import FakePlannerAI
-
-
-async def _make_service() -> PlanService:
-    store = await MemoryPlanStore.init()
-    return PlanService(store, FakePlannerAI())
+from .conftest import make_entry, make_service
 
 
 @pytest.mark.asyncio
 async def test_generate_plan_assigns_ids_and_saves():
-    svc = await _make_service()
+    svc = await make_service()
     _, plan = await svc.generate_plan()
 
     assert plan.id is not None
@@ -31,7 +24,7 @@ async def test_generate_plan_assigns_ids_and_saves():
 
 @pytest.mark.asyncio
 async def test_user_recipe_round_trips_through_service():
-    svc = await _make_service()
+    svc = await make_service()
 
     recipe = Recipe(
         name="Hausgemachte Pizza",
@@ -71,7 +64,7 @@ async def test_user_recipe_round_trips_through_service():
 
 @pytest.mark.asyncio
 async def test_skip_slot_removes_meal_and_creates_skipped_slot():
-    svc = await _make_service()
+    svc = await make_service()
     _, plan = await svc.generate_plan()
     target = plan.meals[0]
 
@@ -86,9 +79,9 @@ async def test_skip_slot_removes_meal_and_creates_skipped_slot():
 
 @pytest.mark.asyncio
 async def test_double_slot_creates_leftovers_and_doubles_multiplier():
-    svc = await _make_service()
+    svc = await make_service()
     _, plan = await svc.generate_plan()
-    # FakePlannerAI generates all MEAL_SLOTS, so we can double the second slot.
+    # The plan fills all MEAL_SLOTS, so we can double the second slot.
     target_slot = ("tuesday", "dinner")
 
     leftovers = await svc.double_slot(plan.id, target_slot[0], target_slot[1])
@@ -106,7 +99,7 @@ async def test_double_slot_creates_leftovers_and_doubles_multiplier():
 
 @pytest.mark.asyncio
 async def test_undo_double_resets_multiplier_and_removes_leftovers():
-    svc = await _make_service()
+    svc = await make_service()
     _, plan = await svc.generate_plan()
     target_slot = ("tuesday", "dinner")
 
@@ -121,7 +114,7 @@ async def test_undo_double_resets_multiplier_and_removes_leftovers():
 
 @pytest.mark.asyncio
 async def test_double_slot_fails_without_preceding_normal_meal():
-    svc = await _make_service()
+    svc = await make_service()
     _, plan = await svc.generate_plan()
     # First slot has no preceding normal meal.
     first = plan.meals[0]
@@ -130,8 +123,8 @@ async def test_double_slot_fails_without_preceding_normal_meal():
 
 
 @pytest.mark.asyncio
-async def test_fill_skipped_slot_with_ai_replaces_skipped_marker():
-    svc = await _make_service()
+async def test_fill_skipped_slot_replaces_skipped_marker():
+    svc = await make_service()
     _, plan = await svc.generate_plan()
     target = plan.meals[0]
     await svc.skip_slot(plan.id, target.day, target.meal_type)
@@ -147,7 +140,7 @@ async def test_fill_skipped_slot_with_ai_replaces_skipped_marker():
 
 @pytest.mark.asyncio
 async def test_settings_round_trips_available_devices():
-    svc = await _make_service()
+    svc = await make_service()
     settings = Settings(available_devices=["Airfryer", "Reiskocher"])
     saved = await svc.update_settings(settings)
     assert saved.available_devices == ["Airfryer", "Reiskocher"]
@@ -158,42 +151,51 @@ async def test_settings_round_trips_available_devices():
 
 @pytest.mark.asyncio
 async def test_settings_normalizes_available_devices():
-    svc = await _make_service()
+    svc = await make_service()
     settings = Settings(available_devices=["airfryer", "AIRFRYER", "Reiskocher", ""])
     saved = await svc.update_settings(settings)
     assert saved.available_devices == ["Airfryer", "Reiskocher"]
 
 
 @pytest.mark.asyncio
-async def test_nutrition_client_uses_persistent_cache():
-    store = await MemoryPlanStore.init()
+async def test_generate_plan_requires_catalog():
+    svc = await make_service(catalog_size=0)
+    with pytest.raises(CatalogEmpty):
+        await svc.generate_plan()
 
-    async def cache_get(name: str) -> dict | None:
-        return await store.get_usda_cache(name)
 
-    async def cache_set(name: str, value: dict) -> None:
-        await store.save_usda_cache(name, value)
+@pytest.mark.asyncio
+async def test_plan_has_distinct_recipes_scaled_to_persons():
+    svc = await make_service()
+    await svc.update_settings(Settings(persons=4))
+    _, plan = await svc.generate_plan()
 
-    recipe = Recipe(
-        name="Test",
-        cooking_time_minutes=10,
-        servings=1,
-        ingredients=[Ingredient(name="Hähnchenbrust", name_en="chicken breast", amount=100, unit="g", category="Fleisch & Fisch")],
-        steps=["braten"],
-        nutrition_per_serving=NutritionInfo(calories=0, protein_g=0, carbs_g=0, fat_g=0),
-    )
+    names = [m.recipe.name for m in plan.meals]
+    assert len(names) == len(set(names)) == 9
+    assert all(m.recipe.servings == 4 for m in plan.meals)
+    assert all(m.recipe.ingredients[0].amount == 400 for m in plan.meals)
 
-    first_client = NutritionClient(cache_get=cache_get, cache_set=cache_set)
-    await first_client.enrich(recipe)
 
-    # A fresh client without in-memory cache should hit the persistent cache.
-    second_client = NutritionClient(cache_get=cache_get, cache_set=cache_set)
-    second_calls = []
+@pytest.mark.asyncio
+async def test_swap_meal_picks_a_different_recipe_not_in_plan():
+    svc = await make_service()
+    _, plan = await svc.generate_plan()
+    meal = plan.meals[0]
+    in_plan = {m.recipe.name for m in plan.meals}
 
-    async def tracking_get(name: str) -> dict | None:
-        second_calls.append(name)
-        return await store.get_usda_cache(name)
+    swapped = await svc.swap_meal(meal.id, "mag_ich_nicht")
+    assert swapped.recipe.name not in in_plan
 
-    second_client._cache_get = tracking_get
-    await second_client.enrich(recipe)
-    assert "chicken breast" in second_calls
+
+@pytest.mark.asyncio
+async def test_chat_plan_intent_builds_plan_and_search_returns_recipe():
+    svc = await make_service()
+    reply, plan, recipe = await svc.handle_chat("Mach mir einen Wochenplan")
+    assert plan is not None and recipe is None
+
+    await svc._store.catalog_add(make_entry("Curry-Topf", ingredient="Hähnchenbrust"))
+    reply, plan, recipe = await svc.handle_chat("Ich hätte Lust auf Hähnchen")
+    assert plan is None and recipe.name == "Curry-Topf"
+
+    reply, plan, recipe = await svc.handle_chat("Sushi")
+    assert plan is None and recipe is None and "kein passendes" in reply

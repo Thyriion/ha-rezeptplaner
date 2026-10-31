@@ -98,6 +98,7 @@ async function _doChat(body) {
     typing.remove();
     appendMsg('assistant', res.reply, false, res.plan);
     if (res.plan) await _onNewPlan(res.plan);
+    if (res.single_recipe) { recipeState.pending = res.single_recipe; appendSingleRecipeMsg(res.single_recipe); }
   } catch(e) {
     typing.remove();
     appendMsg('assistant', `Fehler beim Senden: ${_extractError(e)}`);

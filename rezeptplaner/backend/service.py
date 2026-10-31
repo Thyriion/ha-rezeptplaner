@@ -1,33 +1,88 @@
-import asyncio
 import logging
+import random
+import re
 from datetime import date, timedelta
 
+from .catalog import classify, ingredients_text, scale_recipe
 from .database import PlanStore
 from .devices import normalize_device
 from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
-from .normalize import normalize_recipe_name
-from .nutrition import NutritionClient
-from .prompt_builder import MEAL_SLOTS
-from .recipes import PlannerAI
+from .selector import Candidate, pick_recipes
+from .slots import MEAL_SLOTS
 
 logger = logging.getLogger(__name__)
 
+_PLAN_INTENT_RE = re.compile(r"wochenplan|\bplan\b|\bwoche\b", re.IGNORECASE)
+_STOPWORDS = {"ich", "mir", "mit", "und", "oder", "etwas", "was", "für", "ein", "eine", "einen", "mal",
+              "gern", "gerne", "hab", "habe", "lust", "auf", "rezept", "gericht", "kochen", "essen", "das", "den"}
+
+
+class CatalogEmpty(Exception):
+    """No recipes available yet — the catalog has not been imported."""
+
+
+class NoMatchingRecipes(Exception):
+    """The household's settings exclude every available recipe."""
+
 
 class PlanService:
-    def __init__(self, store: PlanStore, planner: PlannerAI, nutrition: NutritionClient | None = None) -> None:
+    def __init__(self, store: PlanStore, rng: random.Random | None = None) -> None:
         self._store = store
-        self._planner = planner
-        self._nutrition = nutrition or NutritionClient(
-            api_key="DEMO_KEY",
-            cache_get=store.get_usda_cache,
-            cache_set=store.save_usda_cache,
-        )
+        self._rng = rng or random.Random()
 
     @staticmethod
     def _eligible_user_recipes(
         user_recipes: list[UserRecipe], ratings: dict[str, int]
     ) -> list[UserRecipe]:
         return [ur for ur in user_recipes if ratings.get(ur.recipe.name, 5) >= 3]
+
+    async def catalog_count(self) -> int:
+        return await self._store.catalog_count()
+
+    # ── Recipe selection ──────────────────────────────────────────
+
+    async def _candidates(self, user_recipes: list[UserRecipe]) -> list[Candidate]:
+        candidates = await self._store.catalog_candidates()
+        for ur in user_recipes:
+            r = ur.recipe
+            candidates.append(Candidate(
+                key=f"u:{ur.id}", name=r.name, cooking_time=r.cooking_time_minutes,
+                ingredients_text=ingredients_text(r), devices=list(r.suggested_devices),
+                protein_g=r.nutrition_per_serving.protein_g, carbs_g=r.nutrition_per_serving.carbs_g,
+                is_user=True, **classify(r),
+            ))
+        return candidates
+
+    async def _pick(self, count: int, *, hard_avoid: list[str] | None = None,
+                    extra_swaps: list[dict] | None = None, only: "callable | None" = None) -> list[Recipe]:
+        """Pick `count` recipes for the household, scaled to the configured person count."""
+        settings = await self.get_settings()
+        ratings = await self._store.get_ratings()
+        user_recipes = self._eligible_user_recipes(await self._store.get_user_recipes(), ratings)
+        candidates = await self._candidates(user_recipes)
+        if not candidates:
+            raise CatalogEmpty("Der Rezeptkatalog ist noch leer. Bitte zuerst den Import starten.")
+        if only is not None:
+            candidates = [c for c in candidates if only(c)]
+
+        swaps = await self._store.get_recent_swaps() + (extra_swaps or [])
+        soft_avoid = [s["recipe"] for s in swaps]
+        soft_avoid += await self._store.get_recent_recipe_names()
+        picks = pick_recipes(candidates, count, settings, ratings, soft_avoid, hard_avoid, swaps, self._rng)
+        if not picks:
+            raise NoMatchingRecipes(
+                "Keine Rezepte passen zu deinen Einstellungen. Lockere Ernährungsform, Kochzeit oder Abneigungen."
+            )
+
+        user_by_id = {f"u:{ur.id}": ur.recipe for ur in user_recipes}
+        catalog = await self._store.catalog_get_recipes(
+            [int(c.key[2:]) for c in picks if c.key.startswith("c:")]
+        )
+        recipes = [
+            user_by_id[c.key] if c.is_user else catalog[int(c.key[2:])]
+            for c in picks
+        ]
+        return [scale_recipe(r, settings.persons) for r in recipes]
 
     # ── Settings ──────────────────────────────────────────────────
 
@@ -148,28 +203,9 @@ class PlanService:
                 raise LookupError("Eigenes Rezept nicht gefunden")
             return await self.add_recipe_to_plan(plan_id, day, meal_type, user_recipe.recipe)
 
-        # AI suggestion
         current_names = [m.recipe.name for m in plan.meals if not m.is_leftovers]
-        settings = await self.get_settings()
-        recent_swaps = await self._store.get_recent_swaps()
-        ratings = await self._store.get_ratings()
-        user_recipes = self._eligible_user_recipes(
-            await self._store.get_user_recipes(), ratings
-        )
-        new_recipe = await self._planner.replace_meal(
-            old_recipe_name="",
-            reason=reason or "sonstiges",
-            day=day,
-            meal_type=meal_type,
-            settings=settings,
-            recent_swaps=recent_swaps,
-            ratings=ratings,
-            current_recipe_names=current_names or None,
-            user_recipes=user_recipes,
-        )
-        added = await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
-        self._enqueue_enrich(added.recipe, meal_id=added.id)
-        return added
+        [new_recipe] = await self._pick(1, hard_avoid=current_names)
+        return await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
 
     # ── Ratings ───────────────────────────────────────────────────
 
@@ -179,84 +215,65 @@ class PlanService:
     async def ratings(self) -> dict[str, int]:
         return await self._store.get_ratings()
 
-    # ── AI ────────────────────────────────────────────────────────
+    # ── Selection ─────────────────────────────────────────────────
 
-    async def handle_chat(self, message: str) -> tuple[str, WeekPlan | None]:
-        settings = await self.get_settings()
-        recent_swaps = await self._store.get_recent_swaps()
-        current_plan = await self._store.get_current_plan()
-        ratings = await self._store.get_ratings()
-        user_recipes = self._eligible_user_recipes(
-            await self._store.get_user_recipes(), ratings
-        )
-        reply, wants_plan = await self._planner.chat(
-            message, settings, current_plan, recent_swaps, user_recipes=user_recipes
-        )
-        if not wants_plan:
-            return reply, None
-        return await self._generate_and_save_plan()
+    async def handle_chat(self, message: str) -> tuple[str, WeekPlan | None, Recipe | None]:
+        """Keyword-driven chat: a plan request builds a plan, anything else searches the catalog."""
+        if _PLAN_INTENT_RE.search(message):
+            reply, plan = await self._generate_and_save_plan()
+            return reply, plan, None
+
+        terms = [t for t in re.findall(r"[\wäöüß]{3,}", message.lower()) if t not in _STOPWORDS]
+        if not terms:
+            return ("Schreib mir z. B. \"Hähnchen\" oder \"Pasta\" und ich suche ein passendes Rezept — "
+                    "oder sag \"Wochenplan\", dann stelle ich dir eine Woche zusammen."), None, None
+        # Prefer recipes matching every keyword; fall back to any keyword for natural sentences.
+        for matcher in (all, any):
+            try:
+                [recipe] = await self._pick(
+                    1, only=lambda c: matcher(t in f"{c.name.lower()} {c.ingredients_text}" for t in terms)
+                )
+                break
+            except NoMatchingRecipes:
+                continue
+        else:
+            return "Dazu habe ich kein passendes Rezept gefunden. Versuch es mit einem anderen Stichwort.", None, None
+        return f"Wie wäre es mit „{recipe.name}“?", None, recipe
 
     async def generate_plan(self) -> tuple[str, WeekPlan]:
         return await self._generate_and_save_plan()
 
     async def _generate_and_save_plan(self) -> tuple[str, WeekPlan]:
-        settings = await self.get_settings()
-        recent_swaps = await self._store.get_recent_swaps()
-        ratings = await self._store.get_ratings()
-        recent_names = await self._store.get_recent_recipe_names()
-        user_recipes = self._eligible_user_recipes(
-            await self._store.get_user_recipes(), ratings
-        )
-
-        new_plan = await self._planner.generate_plan(
-            settings, recent_swaps, ratings, recent_names,
-            slots=list(MEAL_SLOTS),
-            user_recipes=user_recipes,
-        )
-
-        # Sort by MEAL_SLOTS order
-        slot_order = {slot: i for i, slot in enumerate(MEAL_SLOTS)}
-        new_plan.meals.sort(key=lambda m: slot_order.get((m.day, m.meal_type), 99))
+        recipes = await self._pick(len(MEAL_SLOTS))
+        meals = [
+            Meal(day=day, meal_type=meal_type, recipe=recipe)
+            for (day, meal_type), recipe in zip(MEAL_SLOTS, recipes)
+        ]
 
         today = date.today()
         this_monday = today - timedelta(days=today.weekday())
         existing = await self._store.get_all_plan_metas()
         if existing:
             latest = max(date.fromisoformat(m["week_start"]) for m in existing)
-            new_plan.week_start = max(latest + timedelta(weeks=1), this_monday).isoformat()
+            week_start = max(latest + timedelta(weeks=1), this_monday)
         else:
-            new_plan.week_start = this_monday.isoformat()
+            week_start = this_monday
+        new_plan = await self._store.save_new_plan(WeekPlan(week_start=week_start.isoformat(), meals=meals))
 
-        new_plan.skipped_slots = []
-        new_plan = await self._store.save_new_plan(new_plan)
-
-        for meal in new_plan.meals:
-            if not meal.is_leftovers and meal.id:
-                self._enqueue_enrich(meal.recipe, meal_id=meal.id)
-
-        normal_meals = [m for m in new_plan.meals if not m.is_leftovers]
-        highlights = ", ".join(m.recipe.name for m in normal_meals[:3])
-        extra = len(normal_meals) - 3
+        highlights = ", ".join(m.recipe.name for m in meals[:3])
+        extra = len(meals) - 3
         reply = (
             f"Dein Wochenplan steht! "
             f"Highlights: {highlights}"
             + (f" – und {extra} weitere Gerichte." if extra > 0 else ".")
-            + f' Im Tab "Wochenplan" kannst du alles einsehen, Mahlzeiten tauschen, auslassen oder verdoppeln.'
+            + ' Im Tab "Wochenplan" kannst du alles einsehen, Mahlzeiten tauschen, auslassen oder verdoppeln.'
         )
+        if len(meals) < len(MEAL_SLOTS):
+            reply += f" (Nur {len(meals)} von {len(MEAL_SLOTS)} Slots konnten mit passenden Rezepten gefüllt werden.)"
         return reply, new_plan
 
     async def generate_single_recipe(self) -> Recipe:
-        settings = await self.get_settings()
-        recent_swaps = await self._store.get_recent_swaps()
-        ratings = await self._store.get_ratings()
-        recent_names = await self._store.get_recent_recipe_names()
-        user_recipes = self._eligible_user_recipes(
-            await self._store.get_user_recipes(), ratings
-        )
-        recipe = await self._planner.generate_single_recipe(
-            settings, recent_swaps, ratings, recent_names, user_recipes=user_recipes
-        )
-        self._enqueue_enrich(recipe)
+        [recipe] = await self._pick(1)
         return recipe
 
     async def swap_meal_with_recipe(self, meal_id: int, recipe_id: int) -> Meal:
@@ -275,28 +292,13 @@ class PlanService:
         current_plan = await self._store.get_current_plan()
         current_names = [
             m.recipe.name for m in (current_plan.meals if current_plan else [])
-            if m.id != meal_id and not m.is_leftovers
+            if not m.is_leftovers
         ]
-        settings = await self.get_settings()
-        recent_swaps = await self._store.get_recent_swaps()
-        ratings = await self._store.get_ratings()
-        user_recipes = self._eligible_user_recipes(
-            await self._store.get_user_recipes(), ratings
+        [new_recipe] = await self._pick(
+            1, hard_avoid=current_names + [meal.recipe.name],
+            extra_swaps=[{"recipe": meal.recipe.name, "reason": reason}],
         )
-        new_recipe = await self._planner.replace_meal(
-            old_recipe_name=meal.recipe.name,
-            reason=reason,
-            day=meal.day,
-            meal_type=meal.meal_type,
-            settings=settings,
-            recent_swaps=recent_swaps,
-            ratings=ratings,
-            current_recipe_names=current_names or None,
-            user_recipes=user_recipes,
-        )
-        updated = await self._store.apply_swap(meal_id, new_recipe, reason)
-        self._enqueue_enrich(updated.recipe, meal_id=updated.id)
-        return updated
+        return await self._store.apply_swap(meal_id, new_recipe, reason)
 
     # ── User Recipes ──────────────────────────────────────────────
 
@@ -316,40 +318,3 @@ class PlanService:
         if not await self._store.delete_user_recipe(recipe_id):
             raise LookupError("Rezept nicht gefunden")
         return True
-
-    # ── Nutrition enrichment ────────────────────────────────────────
-
-    def _enqueue_enrich(self, recipe: Recipe, meal_id: int | None = None) -> None:
-        """Start background USDA enrichment for a recipe.
-
-        If meal_id is provided, the enriched nutrition is persisted back to the
-        meal's recipe_json once it becomes available.
-        """
-        asyncio.create_task(self._enrich_and_persist(recipe, meal_id))
-
-    async def _enrich_and_persist(self, recipe: Recipe, meal_id: int | None) -> None:
-        try:
-            nutrition = await self._nutrition.enrich(recipe)
-            if nutrition is None:
-                return
-            recipe.nutrition_per_serving = nutrition
-            recipe.nutrition_enriched = True
-            if meal_id is not None:
-                await self._store.update_meal_recipe(meal_id, recipe)
-        except Exception:
-            logger.exception("Background nutrition enrichment failed")
-
-    async def wait_for_nutrition(self, plan_id: int, timeout: float = 30.0) -> WeekPlan | None:
-        """Long-polling helper: return the plan as soon as all meals have enriched nutrition."""
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
-            plan = await self._store.get_plan_by_id(plan_id)
-            if plan is None:
-                return None
-            if all(
-                m.recipe.nutrition_enriched or m.is_leftovers
-                for m in plan.meals
-            ):
-                return plan
-            await asyncio.sleep(1.0)
-        return await self._store.get_plan_by_id(plan_id)

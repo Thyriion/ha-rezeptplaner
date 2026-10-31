@@ -53,7 +53,7 @@ export function renderShopping(list, container) {
       html += `<label class="shopping-item">
         <input type="checkbox" onchange="toggleCheck(this.closest('.shopping-item'))">
         <span class="item-name">${item.name}</span>
-        <span class="item-amount">${n} ${item.unit}</span>
+        <span class="item-amount">${item.amount ? `${n} ${item.unit}`.trim() : item.unit}</span>
       </label>`;
     }
     html += `</div>`;

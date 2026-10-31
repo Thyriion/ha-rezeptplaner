@@ -38,7 +38,7 @@ class Recipe(BaseModel):
     steps: List[str]
     nutrition_per_serving: NutritionInfo
     suggested_devices: List[str] = []
-    nutrition_enriched: bool = False
+    source_url: Optional[str] = None
 
 
 class Meal(BaseModel):
@@ -123,9 +123,8 @@ class ShoppingList(BaseModel):
     items_by_category: dict[str, List[ShoppingItem]]
 
 
-class ConnectionTestResponse(BaseModel):
-    success: bool
-    message: str
+class CatalogImportRequest(BaseModel):
+    limit: Optional[int] = None
 
 
 class GeneratePlanRequest(BaseModel):

@@ -102,9 +102,41 @@ export function openSettings() {
   const customDevices = selectedDevices.filter(d => !predefinedDevices.includes(d));
   renderTagList('settings-device', customDevices);
   document.getElementById('settings-modal').classList.remove('hidden');
+  refreshCatalogStatus();
 }
 
-export function closeSettings() { document.getElementById('settings-modal').classList.add('hidden'); }
+export function closeSettings() {
+  clearTimeout(catalogTimer);
+  document.getElementById('settings-modal').classList.add('hidden');
+}
+
+// ── Recipe catalog ────────────────────────────────────────────────
+
+let catalogTimer = null;
+
+async function refreshCatalogStatus() {
+  const statusEl = document.getElementById('catalog-status');
+  const btn = document.getElementById('catalog-import-btn');
+  try {
+    const { count, import: imp } = await apiGet('api/catalog/status');
+    statusEl.textContent = imp.running
+      ? `${count} Rezepte im Katalog · Import läuft: ${imp.processed}/${imp.total} geprüft, ${imp.imported} neu`
+      : count
+        ? `${count} Rezepte im Katalog.${imp.last_error ? ' Letzter Fehler: ' + imp.last_error : ''}`
+        : 'Der Katalog ist leer. Starte den Import, um Rezepte von HelloFresh zu laden (läuft im Hintergrund, mehrere Stunden).';
+    btn.textContent = imp.running ? 'Import stoppen' : (count ? 'Katalog aktualisieren' : 'Import starten');
+    clearTimeout(catalogTimer);
+    if (imp.running && !document.getElementById('settings-modal').classList.contains('hidden')) {
+      catalogTimer = setTimeout(refreshCatalogStatus, 3000);
+    }
+  } catch { statusEl.textContent = 'Katalogstatus nicht verfügbar.'; }
+}
+
+export async function toggleCatalogImport() {
+  const { import: imp } = await apiGet('api/catalog/status');
+  await apiPost(imp.running ? 'api/catalog/import/stop' : 'api/catalog/import', {});
+  await refreshCatalogStatus();
+}
 
 export function adjustSettingsPersons(d) {
   const el = document.getElementById('settings-persons-display');

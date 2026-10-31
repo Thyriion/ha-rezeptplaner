@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.0 – 2026-10-31
+
+### Breaking
+- **Keine KI mehr**: Rezepte werden nicht mehr erfunden, sondern aus einem lokalen Rezeptkatalog ausgewählt. Die Add-on-Optionen `ai_base_url`, `ai_model`, `ai_api_key` und `usda_api_key` entfallen.
+
+### Neue Features
+- **Rezeptkatalog**: Import von hellofresh.de im Hintergrund (Einstellungen → Rezeptkatalog), neueste Rezepte zuerst, fortsetzbar. Nährwerte kommen direkt aus der Quelle.
+- **Regelbasierte Auswahl** nach Ernährungsform, Kochzeit, Abneigungen, Schärfe, Küchengeräten, Bewertungen und kürzlich gekochten/getauschten Gerichten, mit Abwechslung bei Fleisch/Fisch/vegetarisch. Eigene Rezepte (Bewertung ≥ 3) sind Teil der Auswahl.
+- Zutatenmengen werden auf die Personenzahl umgerechnet.
+- **Abneigungen und Lieblinge verstehen Kategorien und Mehrzahl**: „Pilze“ trifft auch Champignons, „Fleisch“, „Fisch“, „Nüsse“, „Käse“, „Milchprodukte“ u. a. treffen ganze Gruppen; „Tomaten“ findet „Tomate“.
+- **Budget wirkt**: „Günstig“ bevorzugt Rezepte mit wenig Zutaten, ohne teure Zutaten (Lachs, Garnelen, Rind, Lamm …) und vegetarische; „Mittel“ senkt nur sehr aufwendige/teure Rezepte; „Egal“ ändert nichts. Grundlage ist eine grobe Preisschätzung, keine echten Preise.
+- **Tausch-Gründe wirken**: „mag ich nicht“ senkt ähnliche Gerichte (gleiche Namenswörter wie „Lachs“), „zu aufwendig“ bevorzugt kürzere Rezepte, „zu teuer“ senkt Fleisch-/Fisch- und zutatenreiche Rezepte.
+- Chat: „Wochenplan“ erstellt einen Plan, andere Stichworte suchen im Katalog.
+
+### Entfernt
+- OpenAI-Client, Prompts, USDA-Nährwertanreicherung und `/api/plan/{id}/nutrition`, `/api/test-connection`.
+
+### Architektur
+- Neue Module `catalog.py`, `importer.py`, `selector.py`, `slots.py`; ADR 0003.
+
+---
+
 ## 0.12.0 – 2026-07-04
 
 ### Neue Features

@@ -159,7 +159,7 @@
         <button type="button" class="option-btn" data-value="true">Ja, scharf!</button>
       </div>
       <label>Küchengeräte</label>
-      <p class="hint">Wähle die Geräte aus, die ihr besitzt. Die KI berücksichtigt sie als Inspiration.</p>
+      <p class="hint">Wähle die Geräte aus, die ihr besitzt. Passende Rezepte werden bei der Auswahl bevorzugt.</p>
       <div class="chip-group" id="settings-device-chips"></div>
       <div class="tag-input-wrap">
         <div id="settings-device-tags" class="tag-list"></div>
@@ -168,6 +168,9 @@
           <button type="button" onclick="addTag('settings-device')">+</button>
         </div>
       </div>
+      <label>Rezeptkatalog</label>
+      <p class="hint" id="catalog-status">Lade…</p>
+      <button type="button" class="btn" id="catalog-import-btn" onclick="toggleCatalogImport()">Import starten</button>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="saveSettings()">Speichern</button>

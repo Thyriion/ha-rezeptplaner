@@ -78,7 +78,7 @@ Object.assign(window, {
   // settings
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,
-  addTag, removeTag, tagKeydown, toggleDeviceChip,
+  addTag, removeTag, tagKeydown, toggleDeviceChip, toggleCatalogImport,
   // my recipes
   toggleUserRecipe, openRecipeForm, closeRecipeForm,
   saveUserRecipe, deleteUserRecipeById, editUserRecipeById, addIngredientRow, addStepRow,

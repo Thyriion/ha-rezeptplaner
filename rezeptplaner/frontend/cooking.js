@@ -65,7 +65,7 @@ function renderStepIngredients() {
   const relevant = getRelevantIngredients(stepText, cooking.ingredients);
   container.innerHTML = relevant.map(ing => {
     const amount = ing.amount * mult;
-    return `<div class="cooking-ingredient"><span>${escapeHtml(ing.name)}</span><span>${fmt(amount)} ${escapeHtml(ing.unit)}</span></div>`;
+    return `<div class="cooking-ingredient"><span>${escapeHtml(ing.name)}</span><span>${amount ? `${fmt(amount)} ` : ''}${escapeHtml(ing.unit)}</span></div>`;
   }).join('');
 }
 

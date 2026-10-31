@@ -7,14 +7,13 @@ from fastapi import FastAPI, HTTPException
 logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 
-from .ai_client import test_connection as ai_test_connection
 from .database import DB_PATH, PlanStore
 from .ha_client import SupervisorAdapter
 from .models import (
     AddRecipeRequest,
     ChatRequest,
     ChatResponse,
-    ConnectionTestResponse,
+    CatalogImportRequest,
     DoubleSlotRequest,
     FillSkippedSlotRequest,
     GeneratePlanRequest,
@@ -32,28 +31,23 @@ from .models import (
     UserRecipe,
     WeekPlan,
 )
-from .config import load as load_config
 from .devices import PREDEFINED_KITCHEN_DEVICES
-from .nutrition import NutritionClient
-from .recipes import PlannerAI
-from .service import PlanService
+from .importer import CatalogImporter
+from .service import CatalogEmpty, NoMatchingRecipes, PlanService
 from .shopping import build_shopping_list, push_items
 
 _service: PlanService
+_importer: CatalogImporter
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _service
-    cfg = load_config()
+    global _service, _importer
     store = await PlanStore.init(DB_PATH)
-    nutrition = NutritionClient(
-        api_key=cfg.usda_api_key,
-        cache_get=store.get_usda_cache,
-        cache_set=store.save_usda_cache,
-    )
-    _service = PlanService(store, PlannerAI(cfg), nutrition)
+    _importer = CatalogImporter(store)
+    _service = PlanService(store)
     yield
+    await _importer.stop()
 
 
 ingress_path = os.environ.get("INGRESS_PATH", "")
@@ -86,12 +80,23 @@ async def write_settings(settings: Settings):
     return await _service.update_settings(settings)
 
 
-# --- AI Provider Test ---
+# --- Recipe Catalog ---
 
-@app.post("/api/test-connection", response_model=ConnectionTestResponse)
-async def test_connection_endpoint():
-    success, message = await ai_test_connection()
-    return ConnectionTestResponse(success=success, message=message)
+@app.get("/api/catalog/status")
+async def catalog_status():
+    return {"count": await _service.catalog_count(), "import": _importer.status}
+
+
+@app.post("/api/catalog/import")
+async def start_catalog_import(req: CatalogImportRequest = CatalogImportRequest()):
+    started = await _importer.start(limit=req.limit)
+    return {"started": started, "import": _importer.status}
+
+
+@app.post("/api/catalog/import/stop")
+async def stop_catalog_import():
+    await _importer.stop()
+    return {"import": _importer.status}
 
 
 # --- Chat ---
@@ -99,11 +104,10 @@ async def test_connection_endpoint():
 @app.post("/api/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     try:
-        reply, new_plan = await _service.handle_chat(req.message)
-        return ChatResponse(reply=reply, plan=new_plan)
-    except Exception as e:
-        logger.exception("Chat-Fehler")
-        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
+        reply, new_plan, recipe = await _service.handle_chat(req.message)
+        return ChatResponse(reply=reply, plan=new_plan, single_recipe=recipe)
+    except (CatalogEmpty, NoMatchingRecipes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 # --- Week Plans ---
@@ -126,22 +130,13 @@ async def get_plan_by_id(plan_id: int):
     return plan
 
 
-@app.get("/api/plan/{plan_id}/nutrition", response_model=WeekPlan | None)
-async def wait_for_plan_nutrition(plan_id: int, timeout: float = 30.0):
-    plan = await _service.wait_for_nutrition(plan_id, timeout=timeout)
-    if not plan:
-        raise HTTPException(status_code=404, detail="Plan nicht gefunden")
-    return plan
-
-
 @app.post("/api/plan/generate", response_model=ChatResponse)
 async def generate_plan(req: GeneratePlanRequest = GeneratePlanRequest()):
     try:
         reply, new_plan = await _service.generate_plan()
         return ChatResponse(reply=reply, plan=new_plan)
-    except Exception as e:
-        logger.exception("Plan-Generierung fehlgeschlagen")
-        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
+    except (CatalogEmpty, NoMatchingRecipes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.post("/api/plan/skip-slot", response_model=SkippedSlot)
@@ -182,6 +177,8 @@ async def fill_skipped_slot(req: FillSkippedSlotRequest):
         )
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except (CatalogEmpty, NoMatchingRecipes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -207,6 +204,8 @@ async def swap_meal(req: SwapRequest):
         return await _service.swap_meal(req.meal_id, req.reason)
     except LookupError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except (CatalogEmpty, NoMatchingRecipes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 @app.post("/api/plan/add-recipe", response_model=Meal)
@@ -223,9 +222,8 @@ async def add_recipe_to_plan(req: AddRecipeRequest):
 async def get_single_recipe():
     try:
         return await _service.generate_single_recipe()
-    except Exception as e:
-        logger.exception("Einzelrezept-Generierung fehlgeschlagen")
-        raise HTTPException(status_code=503, detail=f"KI-Fehler: {e}")
+    except (CatalogEmpty, NoMatchingRecipes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
 
 # --- Ratings ---
