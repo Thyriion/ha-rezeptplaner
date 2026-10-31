@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.13.2 – 2026-10-31
+
+### Neue Features
+- **Fast gleiche Rezepte werden erkannt**: Rezepte mit sehr ähnlichem Titel (z. B. „Cremige Räucherlachs-Farfalle“ / „Cremige Farfalle mit Räucherlachs“) kommen nie zusammen in einem Plan vor. Kürzlich gekochte oder getauschte Gerichte sperren auch ihre Varianten.
+
+### Performance
+- Auswahl auf dem vollen Katalog ca. 20× schneller (Namensschlüssel und Tausch-Daten werden nur einmal berechnet).
+
+---
+
 ## 0.13.1 – 2026-10-31
 
 ### Bugfixes

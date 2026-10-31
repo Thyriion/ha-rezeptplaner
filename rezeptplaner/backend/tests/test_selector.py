@@ -1,7 +1,7 @@
 import random
 
 from ..models import Settings
-from ..selector import Candidate, _budget_factor, _swap_factor, pick_recipes
+from ..selector import Candidate, _budget_factor, _prepare_swaps, _swap_factor, pick_recipes
 
 
 def _cand(i: int, ingredients: str = "nudeln", protein: str = "vegetarisch", **kw) -> Candidate:
@@ -59,13 +59,13 @@ def test_swap_reasons_weight_similar_recipes_down():
     by_name = {c.name_key: c for c in (lachs, other_lachs, pasta, slow)}
 
     mag = [{"recipe": "Lachs mit Dill", "reason": "mag_ich_nicht"}]
-    assert _swap_factor(other_lachs, mag, by_name) < 0.5 and _swap_factor(pasta, mag, by_name) == 1.0
+    assert _swap_factor(other_lachs, _prepare_swaps(mag, by_name)) < 0.5 and _swap_factor(pasta, _prepare_swaps(mag, by_name)) == 1.0
 
     aufwendig = [{"recipe": "Lachs mit Dill", "reason": "zu_aufwendig"}]
-    assert _swap_factor(slow, aufwendig, by_name) < 0.5 and _swap_factor(pasta, aufwendig, by_name) == 1.0
+    assert _swap_factor(slow, _prepare_swaps(aufwendig, by_name)) < 0.5 and _swap_factor(pasta, _prepare_swaps(aufwendig, by_name)) == 1.0
 
     teuer = [{"recipe": "Lachs mit Dill", "reason": "zu_teuer"}]
-    assert _swap_factor(slow, teuer, by_name) < 1.0 and _swap_factor(pasta, teuer, by_name) == 1.0
+    assert _swap_factor(slow, _prepare_swaps(teuer, by_name)) < 1.0 and _swap_factor(pasta, _prepare_swaps(teuer, by_name)) == 1.0
 
 
 def test_budget_prefers_cheap_recipes():
@@ -75,3 +75,23 @@ def test_budget_prefers_cheap_recipes():
     assert _budget_factor(cheap, "günstig") > 1.0 > _budget_factor(pricey, "günstig")
     assert _budget_factor(pricey, "günstig") < _budget_factor(pricey, "mittel") < 1.0
     assert _budget_factor(pricey, "egal") == 1.0 and _budget_factor(cheap, "mittel") == 1.0
+
+
+def test_near_duplicate_titles_are_never_picked_together():
+    cands = [_cand(1, name="Cremige Räucherlachs-Farfalle"), _cand(2, name="Cremige Farfalle mit Räucherlachs"),
+             _cand(3, name="Cremiges Thai-Curry"), _cand(4, name="Cremiges Thai-Curry-Risotto"),
+             _cand(5, name="Pizza Margherita")]
+    for seed in range(20):
+        names = [c.name for c in pick_recipes(cands, 5, Settings(), rng=random.Random(seed))]
+        assert len(names) == 3
+        assert not {"Cremige Räucherlachs-Farfalle", "Cremige Farfalle mit Räucherlachs"} <= set(names)
+        assert not {"Cremiges Thai-Curry", "Cremiges Thai-Curry-Risotto"} <= set(names)
+
+
+def test_variants_of_avoided_recipes_are_blocked():
+    cands = [_cand(1, name="Gnocchi in feiner Tomatensoße"), _cand(2, name="Gnocchi in feiner Mascarpone-Tomatensoße"),
+             _cand(3, name="Pizza Margherita")]
+    names = {c.name for c in pick_recipes(cands, 3, Settings(), hard_avoid_names=["Gnocchi in feiner Tomatensoße"])}
+    assert names == {"Pizza Margherita"}
+    soft = pick_recipes(cands, 1, Settings(), avoid_names=["Gnocchi in feiner Tomatensoße"], rng=random.Random(0))
+    assert soft[0].name == "Pizza Margherita"

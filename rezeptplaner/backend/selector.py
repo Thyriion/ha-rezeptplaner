@@ -1,6 +1,7 @@
 """Rule-based recipe selection from the local catalog — no AI involved."""
 import random
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 
 from .catalog import has_gluten, has_lactose, matches_term
@@ -11,6 +12,29 @@ from .normalize import normalize_recipe_name
 _VARIETY_PENALTY = 0.35
 _LOW_CARB_MAX_G = 50
 _HIGH_PROTEIN_MIN_G = 30
+
+
+# Titles whose word sets overlap at least this much count as near-duplicates.
+_SIMILAR_TITLE = 0.6
+_TITLE_WORD_RE = re.compile(r"[a-zäöüß0-9]+")
+_TITLE_STOPWORDS = {
+    "mit", "und", "dazu", "auf", "der", "die", "das", "von", "dem", "den", "in", "an", "aus", "für",
+    "doppelt", "doppeltes", "doppelte", "feine", "feiner", "feinem", "bio",
+}
+
+
+def title_tokens(name: str) -> frozenset[str]:
+    """Stemmed content words of a recipe title, for near-duplicate detection."""
+    tokens = set()
+    for word in _TITLE_WORD_RE.findall(name.lower()):
+        if word in _TITLE_STOPWORDS:
+            continue
+        if len(word) > 5 and word.endswith(("en", "es", "er")):
+            word = word[:-2]
+        elif len(word) > 4 and word.endswith(("e", "n", "s")):
+            word = word[:-1]
+        tokens.add(word)
+    return frozenset(tokens)
 
 
 @dataclass
@@ -27,10 +51,12 @@ class Candidate:
     carbs_g: float = 0.0
     devices: list[str] = field(default_factory=list)
     is_user: bool = False
+    title_tokens: frozenset[str] = field(init=False, repr=False, default=frozenset())
+    name_key: str = field(init=False, repr=False, default="")
 
-    @property
-    def name_key(self) -> str:
-        return normalize_recipe_name(self.name)
+    def __post_init__(self) -> None:
+        self.title_tokens = title_tokens(self.name)
+        self.name_key = normalize_recipe_name(self.name)
 
 
 def _eligible(c: Candidate, settings: Settings, ratings: dict[str, int],
@@ -66,15 +92,23 @@ def _name_tokens(name: str) -> set[str]:
     return {t[:5].lower() for t in _NAME_TOKEN_RE.findall(name)} - _GENERIC_NAME_TOKENS
 
 
-def _swap_factor(c: Candidate, swaps: list[dict], by_name: dict[str, Candidate]) -> float:
+def _prepare_swaps(swaps: list[dict], by_name: dict[str, Candidate]) -> list[tuple[str, Candidate | None, set[str]]]:
+    """Resolve each swap once: (reason, swapped-out candidate if in the pool, its name tokens)."""
+    return [
+        (swap.get("reason", ""), by_name.get(normalize_recipe_name(swap["recipe"])), _name_tokens(swap["recipe"]))
+        for swap in swaps
+    ]
+
+
+def _swap_factor(c: Candidate, prepared: list[tuple[str, Candidate | None, set[str]]]) -> float:
     """Down-weight candidates that resemble recently swapped-out recipes, depending on the reason."""
     factor = 1.0
-    c_tokens = _name_tokens(c.name)
-    for swap in swaps:
-        reason = swap.get("reason")
-        old = by_name.get(normalize_recipe_name(swap["recipe"]))
-        if reason == "mag_ich_nicht" and c_tokens & _name_tokens(swap["recipe"]):
-            factor *= 0.3
+    c_tokens = None
+    for reason, old, old_tokens in prepared:
+        if reason == "mag_ich_nicht":
+            c_tokens = _name_tokens(c.name) if c_tokens is None else c_tokens
+            if c_tokens & old_tokens:
+                factor *= 0.3
         elif reason == "zu_aufwendig" and old and c.cooking_time >= old.cooking_time:
             factor *= 0.4
         elif reason == "zu_teuer":
@@ -125,6 +159,20 @@ def _weight(c: Candidate, settings: Settings, ratings: dict[str, int]) -> float:
     return weight
 
 
+def _similar_indices(index: dict[str, list[int]], candidates: list[Candidate],
+                     tokens: frozenset[str]) -> set[int]:
+    """Indices of candidates whose title is a near-duplicate of `tokens` (Jaccard >= threshold)."""
+    if not tokens:
+        return set()
+    overlap: Counter = Counter()
+    for token in tokens:
+        overlap.update(index.get(token, ()))
+    return {
+        i for i, n in overlap.items()
+        if n / (len(tokens) + len(candidates[i].title_tokens) - n) >= _SIMILAR_TITLE
+    }
+
+
 def pick_recipes(
     candidates: list[Candidate],
     count: int,
@@ -135,36 +183,55 @@ def pick_recipes(
     swaps: list[dict] | None = None,
     rng: random.Random | None = None,
 ) -> list[Candidate]:
-    """Weighted random pick of up to `count` distinct recipes.
+    """Weighted random pick of up to `count` distinct, non-near-duplicate recipes.
 
-    `hard_avoid_names` (e.g. the current plan) are always excluded. `swaps` ({recipe, reason}) steer weights by reason. `avoid_names`
-    (recent meals, recent swaps) are dropped first when too few candidates remain,
-    then the cooking-time limit is relaxed.
+    `hard_avoid_names` (e.g. the current plan) and their near-duplicate variants are always
+    excluded. `avoid_names` (recent meals, recent swaps) are dropped first when too few
+    candidates remain, then the cooking-time limit is relaxed. `swaps` ({recipe, reason})
+    steer weights by reason.
     """
     rng = rng or random.Random()
     ratings = ratings or {}
+    swaps = swaps or []
     hard = {normalize_recipe_name(n) for n in (hard_avoid_names or [])}
     soft = {normalize_recipe_name(n) for n in (avoid_names or [])}
 
+    index: dict[str, list[int]] = defaultdict(list)
+    for i, c in enumerate(candidates):
+        for token in c.title_tokens:
+            index[token].append(i)
+
+    def similar_to_any(names: list[str] | None) -> set[int]:
+        found: set[int] = set()
+        for name in names or []:
+            found |= _similar_indices(index, candidates, title_tokens(name))
+        return found
+
+    hard_similar = similar_to_any(hard_avoid_names)
+    all_similar = hard_similar | similar_to_any(avoid_names)
+
     pool: list[Candidate] = []
-    for excluded, time_factor in ((hard | soft, 1.0), (hard, 1.0), (hard, 1.5)):
-        pool = [c for c in candidates if _eligible(c, settings, ratings, excluded, time_factor)]
+    for excluded, similar, time_factor in ((hard | soft, all_similar, 1.0),
+                                           (hard, hard_similar, 1.0),
+                                           (hard, hard_similar, 1.5)):
+        pool = [c for i, c in enumerate(candidates)
+                if i not in similar and _eligible(c, settings, ratings, excluded, time_factor)]
         if len({c.name_key for c in pool}) >= count:
             break
 
+    by_name = {c.name_key: c for c in candidates}
+    prepared = _prepare_swaps(swaps, by_name)
+    base = {c.key: _weight(c, settings, ratings) * _swap_factor(c, prepared) for c in pool}
+    pool_index = {c.key: i for i, c in enumerate(candidates)}
+
     picked: list[Candidate] = []
     type_counts: dict[str, int] = {}
-    seen: set[str] = set()
-    by_name = {c.name_key: c for c in candidates}
-    swaps = swaps or []
     while pool and len(picked) < count:
-        weights = [_weight(c, settings, ratings) * _swap_factor(c, swaps, by_name) * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0)
-                   for c in pool]
+        weights = [base[c.key] * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0) for c in pool]
         choice = rng.choices(pool, weights=weights, k=1)[0]
-        pool = [c for c in pool if c.name_key != choice.name_key]
-        if choice.name_key in seen:
-            continue
-        seen.add(choice.name_key)
         picked.append(choice)
         type_counts[choice.protein_type] = type_counts.get(choice.protein_type, 0) + 1
+        dupes = _similar_indices(index, candidates, choice.title_tokens) | {pool_index[choice.key]}
+        dupes_keys = {candidates[i].key for i in dupes} | {c.key for c in pool if c.name_key == choice.name_key}
+        pool = [c for c in pool if c.key not in dupes_keys]
     return picked
