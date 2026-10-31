@@ -1,5 +1,5 @@
 name: Rezeptplaner
-version: "0.13.0"
+version: "0.13.1"
 slug: rezeptplaner
 description: Wochenrezeptplaner mit lokalem Rezeptkatalog
 url: https://github.com/Thyriion/ha-rezeptplaner

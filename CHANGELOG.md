@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.13.1 – 2026-10-31
+
+### Bugfixes
+- **UI startete nicht**: `toggleCatalogImport` wurde in `app.js` verwendet, aber nicht importiert; das ganze Frontend-Modul brach dadurch ab.
+
+---
+
 ## 0.13.0 – 2026-10-31
 
 ### Breaking

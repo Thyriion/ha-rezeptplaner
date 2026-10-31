@@ -18,7 +18,8 @@ import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          confirmAddToPlan, checkAddToPlanReady } from './chat.js';
 import { showWizard, updateWizardStep, wizardBack, wizardNext, adjustPersons,
          openSettings, closeSettings, saveSettings, adjustSettingsPersons,
-         addTag, removeTag, tagKeydown, loadKitchenDevices, toggleDeviceChip } from './settings.js';
+         addTag, removeTag, tagKeydown, loadKitchenDevices, toggleDeviceChip,
+         toggleCatalogImport } from './settings.js';
 
 // ── Toast ─────────────────────────────────────────────────────────
 
