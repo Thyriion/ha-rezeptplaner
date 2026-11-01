@@ -9,7 +9,7 @@ import aiosqlite
 from .catalog import CatalogEntry, classify
 from .models import Meal, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
 from .normalize import normalize_recipe_name
-from .prices import estimate_price_per_serving
+from .prices import PRICE_VERSION, estimate_price_per_serving
 from .selector import Candidate
 
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/rezeptplaner.db"))
@@ -82,6 +82,11 @@ CREATE TABLE IF NOT EXISTS catalog_recipes (
     ingredients_text TEXT    NOT NULL,
     recipe_json      TEXT    NOT NULL,
     imported_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS catalog_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS catalog_skipped (
@@ -470,11 +475,13 @@ class PlanStore:
     # ── Recipe catalog ────────────────────────────────────────────────
 
     async def _backfill_prices(self) -> None:
-        """Compute prices (and refresh diet flags) for rows imported before prices existed."""
+        """Recompute prices and diet flags when the price table changed (or never ran)."""
         async with self._conn() as db:
-            async with db.execute(
-                "SELECT id, recipe_json FROM catalog_recipes WHERE price_per_serving IS NULL"
-            ) as cur:
+            async with db.execute("SELECT value FROM catalog_meta WHERE key = 'price_version'") as cur:
+                row = await cur.fetchone()
+            current = int(row[0]) if row else None
+            where = "" if current != PRICE_VERSION else "WHERE price_per_serving IS NULL"
+            async with db.execute(f"SELECT id, recipe_json FROM catalog_recipes {where}") as cur:
                 rows = await cur.fetchall()
             for row_id, recipe_json in rows:
                 recipe = Recipe.model_validate_json(recipe_json)
@@ -486,6 +493,10 @@ class PlanStore:
                     (recipe.price_per_serving, recipe.model_dump_json(), flags["protein_type"],
                      int(flags["is_vegetarian"]), int(flags["is_vegan"]), int(flags["is_spicy"]), row_id),
                 )
+            await db.execute(
+                "INSERT OR REPLACE INTO catalog_meta (key, value) VALUES ('price_version', ?)",
+                (str(PRICE_VERSION),),
+            )
             await db.commit()
 
     async def catalog_count(self) -> int:

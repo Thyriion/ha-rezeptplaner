@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.2 – 2026-11-01
+
+### Bugfixes
+- **Preisschätzung deutlich genauer**: Wasser kostet nichts mehr (wurde mit 6 €/kg gerechnet), Glasnudeln und Kräuter wurden falsch eingeordnet (als Nudeln bzw. Lauch), Hack vom Weiderind steht jetzt mit ~17 €/kg in der Tabelle, Bio-/Weide-Zutaten sind 30 % teurer, und ein Aufschlag von 25 % berücksichtigt, dass man ganze Packungen kauft. Viele fehlende Zutaten (Ente, Camembert, Paneer, Gochujang, Brühpulver, Maiskolben …) sind ergänzt. Beispiel: „Karamellisiertes Miso-Hack vom Weiderind“ von 2,59 € auf 4,37 € pro Portion. Der gesamte Katalog wird beim nächsten Start einmalig neu berechnet (`PRICE_VERSION`).
+
+---
+
 ## 0.14.1 – 2026-11-01
 
 ### Neue Features

@@ -5,7 +5,7 @@ import pytest
 from ..catalog import classify, parse_ingredient, parse_recipe_page, scale_recipe
 from ..database import MemoryPlanStore
 from ..importer import CatalogImporter
-from ..prices import estimate_price_per_serving
+from ..prices import PRICE_VERSION, _price_of, estimate_price_per_serving
 from .conftest import make_recipe
 
 
@@ -119,3 +119,49 @@ async def test_store_backfills_missing_prices():
     await store._backfill_prices()
     [cand] = await store.catalog_candidates()
     assert cand.price and cand.price > 0 and cand.protein_type == "fisch"
+
+
+@pytest.mark.parametrize("name,expected_eur_per_kg", [
+    ("Hackfleischzubereitung vom Weiderind", 17),
+    ("gemischte Hackfleischzubereitung", 9),
+    ("Glasnudeln", 6),
+    ("Spaghetti", 3),
+    ("Schnittlauch", 25),
+    ("Porree", 3),
+    ("Entenbrust", 22),
+    ("Gemüsebrühpulver", 12),
+    ("Pak Choi", 5),
+    ("Maiskolben (vorgekocht)", 3.5),
+])
+def test_price_table_matches_the_right_ingredient(name, expected_eur_per_kg):
+    assert _price_of(name)[0] == expected_eur_per_kg
+
+
+def test_water_is_free_and_organic_costs_more():
+    from ..models import Ingredient
+    def price(*ings):
+        return estimate_price_per_serving(make_recipe().model_copy(update={"servings": 1, "ingredients": [
+            Ingredient(name=n, amount=a, unit=u, category="Sonstiges") for n, a, u in ings]}))
+    assert price(("Wasser", 500, "ml"), ("Nudeln", 100, "g")) == price(("Nudeln", 100, "g"))
+    assert price(("Bio-Hähnchenbrust", 200, "g")) > price(("Hähnchenbrust", 200, "g"))
+
+
+@pytest.mark.asyncio
+async def test_backfill_reprices_everything_when_the_price_version_changes():
+    import aiosqlite
+    from .conftest import make_entry
+    store = await MemoryPlanStore.init()
+    await store.catalog_add(make_entry("Alt", ingredient="Lachsfilet"))
+    async with aiosqlite.connect(store._db_path) as db:
+        await db.execute("UPDATE catalog_recipes SET price_per_serving = 0.01")
+        await db.execute("UPDATE catalog_meta SET value = ?", (str(PRICE_VERSION - 1),))
+        await db.commit()
+    await store._backfill_prices()
+    [cand] = await store.catalog_candidates()
+    assert cand.price > 1.0  # recomputed although the column was not NULL
+    async with aiosqlite.connect(store._db_path) as db:
+        await db.execute("UPDATE catalog_recipes SET price_per_serving = 0.01")
+        await db.commit()
+    await store._backfill_prices()  # same version now: leaves existing prices alone
+    [cand] = await store.catalog_candidates()
+    assert cand.price == 0.01
