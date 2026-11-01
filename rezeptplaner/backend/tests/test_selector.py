@@ -1,7 +1,7 @@
 import random
 
 from ..models import Settings
-from ..selector import Candidate, _budget_factor, _prepare_swaps, _swap_factor, pick_recipes
+from ..selector import Candidate, _prepare_swaps, _swap_factor, pick_recipes
 
 
 def _cand(i: int, ingredients: str = "nudeln", protein: str = "vegetarisch", **kw) -> Candidate:
@@ -68,13 +68,25 @@ def test_swap_reasons_weight_similar_recipes_down():
     assert _swap_factor(slow, _prepare_swaps(teuer, by_name)) < 1.0 and _swap_factor(pasta, _prepare_swaps(teuer, by_name)) == 1.0
 
 
-def test_budget_prefers_cheap_recipes():
-    cheap = _cand(1, "nudeln | tomaten | zwiebel")
-    pricey = _cand(2, " | ".join(["lachsfilet", "garnelen", "avocado"] + [f"zutat{i}" for i in range(12)]),
-                   protein="fisch")
-    assert _budget_factor(cheap, "günstig") > 1.0 > _budget_factor(pricey, "günstig")
-    assert _budget_factor(pricey, "günstig") < _budget_factor(pricey, "mittel") < 1.0
-    assert _budget_factor(pricey, "egal") == 1.0 and _budget_factor(cheap, "mittel") == 1.0
+def test_budget_tiers_limit_the_price_range():
+    cands = [_cand(i, name=f"Gericht {chr(97 + i)}", price=float(i + 1)) for i in range(9)]  # 1..9 EUR
+    prices = lambda budget, n: {c.price for c in _pick(cands, n=n, settings=Settings(budget=budget))}
+    assert prices("günstig", 3) == {1.0, 2.0, 3.0}
+    assert prices("mittel", 6) == {1.0, 2.0, 3.0, 4.0, 5.0, 6.0}
+    assert prices("egal", 9) == {float(i) for i in range(1, 10)}
+
+
+def test_budget_is_relaxed_when_too_few_recipes_fit():
+    cands = [_cand(i, name=f"Gericht {chr(97 + i)}", price=float(i + 1)) for i in range(9)]
+    assert len(_pick(cands, n=5, settings=Settings(budget="günstig"))) == 5
+
+
+def test_budget_tiers_ignore_the_search_narrowing():
+    cheap = [_cand(i, name=f"Billig {chr(97 + i)}", price=1.0) for i in range(6)]
+    pricey = [_cand(10 + i, name=f"Teuer {chr(97 + i)}", price=10.0) for i in range(3)]
+    picks = pick_recipes(cheap + pricey, 3, Settings(budget="günstig"), only=lambda c: c.name.startswith("Teuer"),
+                         rng=random.Random(1))
+    assert len(picks) == 3  # tiers come from the whole catalog; relaxed because nothing "Teuer" is cheap
 
 
 def test_near_duplicate_titles_are_never_picked_together():

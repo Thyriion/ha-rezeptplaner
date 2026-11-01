@@ -6,9 +6,10 @@ from pathlib import Path
 
 import aiosqlite
 
-from .catalog import CatalogEntry
+from .catalog import CatalogEntry, classify
 from .models import Meal, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
 from .normalize import normalize_recipe_name
+from .prices import estimate_price_per_serving
 from .selector import Candidate
 
 DB_PATH = Path(os.environ.get("DB_PATH", "/data/rezeptplaner.db"))
@@ -75,6 +76,7 @@ CREATE TABLE IF NOT EXISTS catalog_recipes (
     is_vegan         INTEGER NOT NULL,
     is_spicy         INTEGER NOT NULL,
     protein_g        REAL    NOT NULL DEFAULT 0,
+    price_per_serving REAL,
     carbs_g          REAL    NOT NULL DEFAULT 0,
     devices          TEXT    NOT NULL DEFAULT '[]',
     ingredients_text TEXT    NOT NULL,
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS catalog_skipped (
 """
 
 _MIGRATIONS = [
+    "ALTER TABLE catalog_recipes ADD COLUMN price_per_serving REAL",
     "ALTER TABLE swaps ADD COLUMN recipe_name TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE meals ADD COLUMN is_leftovers INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE meals ADD COLUMN source_recipe_name TEXT",
@@ -122,6 +125,7 @@ class PlanStore:
                 except Exception:
                     pass
             await db.commit()
+        await store._backfill_prices()
         return store
 
     # ── Settings ─────────────────────────────────────────────────────
@@ -465,6 +469,25 @@ class PlanStore:
 
     # ── Recipe catalog ────────────────────────────────────────────────
 
+    async def _backfill_prices(self) -> None:
+        """Compute prices (and refresh diet flags) for rows imported before prices existed."""
+        async with self._conn() as db:
+            async with db.execute(
+                "SELECT id, recipe_json FROM catalog_recipes WHERE price_per_serving IS NULL"
+            ) as cur:
+                rows = await cur.fetchall()
+            for row_id, recipe_json in rows:
+                recipe = Recipe.model_validate_json(recipe_json)
+                recipe.price_per_serving = estimate_price_per_serving(recipe)
+                flags = classify(recipe)
+                await db.execute(
+                    """UPDATE catalog_recipes SET price_per_serving = ?, recipe_json = ?, protein_type = ?,
+                       is_vegetarian = ?, is_vegan = ?, is_spicy = ? WHERE id = ?""",
+                    (recipe.price_per_serving, recipe.model_dump_json(), flags["protein_type"],
+                     int(flags["is_vegetarian"]), int(flags["is_vegan"]), int(flags["is_spicy"]), row_id),
+                )
+            await db.commit()
+
     async def catalog_count(self) -> int:
         async with self._conn() as db:
             async with db.execute("SELECT COUNT(*) FROM catalog_recipes") as cur:
@@ -483,12 +506,13 @@ class PlanStore:
             await db.execute(
                 """INSERT OR IGNORE INTO catalog_recipes
                    (source_url, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
-                    protein_g, carbs_g, devices, ingredients_text, recipe_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    protein_g, carbs_g, devices, ingredients_text, recipe_json, price_per_serving)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (entry.source_url, r.name, r.cooking_time_minutes, entry.protein_type,
                  int(entry.is_vegetarian), int(entry.is_vegan), int(entry.is_spicy),
                  r.nutrition_per_serving.protein_g, r.nutrition_per_serving.carbs_g,
-                 json.dumps(r.suggested_devices), entry.ingredients_text, r.model_dump_json()),
+                 json.dumps(r.suggested_devices), entry.ingredients_text, r.model_dump_json(),
+                 r.price_per_serving),
             )
             await db.commit()
 
@@ -505,7 +529,7 @@ class PlanStore:
         async with self._conn() as db:
             async with db.execute(
                 """SELECT id, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
-                          protein_g, carbs_g, devices, ingredients_text FROM catalog_recipes"""
+                          protein_g, carbs_g, devices, ingredients_text, price_per_serving FROM catalog_recipes"""
             ) as cur:
                 rows = await cur.fetchall()
         return [
@@ -513,6 +537,7 @@ class PlanStore:
                 key=f"c:{r[0]}", name=r[1], cooking_time=r[2], protein_type=r[3],
                 is_vegetarian=bool(r[4]), is_vegan=bool(r[5]), is_spicy=bool(r[6]),
                 protein_g=r[7], carbs_g=r[8], devices=json.loads(r[9]), ingredients_text=r[10],
+                price=r[11],
             )
             for r in rows
         ]

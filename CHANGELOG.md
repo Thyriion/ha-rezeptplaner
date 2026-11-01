@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.14.0 – 2026-11-01
+
+### Neue Features
+- **Budget wirkt jetzt deutlich**: Für jedes Rezept wird beim Import ein Preis pro Portion geschätzt (Preistabelle für ~200 gängige Zutaten, `prices.py`). „Günstig“ zieht nur aus dem günstigsten Drittel des Katalogs, „Mittel“ lässt das teuerste Drittel weg, „Egal“ nimmt alles. Gibt es zu wenige passende Rezepte, wird das Budget zuletzt gelockert. Der Preis (≈ € pro Portion) steht in der Rezeptansicht. Bereits importierte Rezepte werden beim Start einmalig nachberechnet.
+- „zu teuer“ beim Tauschen vergleicht jetzt den geschätzten Preis.
+
+### Bugfixes
+- Vegane Fleischersatzprodukte („veganes Hack“) zählen nicht mehr als Fleisch (Ernährungsform und Preis).
+
+---
+
 ## 0.13.2 – 2026-10-31
 
 ### Neue Features

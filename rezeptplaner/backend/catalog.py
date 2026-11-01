@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .devices import PREDEFINED_KITCHEN_DEVICES
 from .models import Ingredient, NutritionInfo, Recipe
+from .prices import estimate_price_per_serving
 
 _LD_JSON_RE = re.compile(r'<script[^>]*ld\+json[^>]*>(.*?)</script>', re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -82,6 +83,8 @@ _ANIMAL_RE = re.compile(
     r"burrata|halloumi|mascarpone|ricotta|skyr|\bei\b|\beier\b|eigelb|eiweiß|honig|grana|pecorino|kräuterbutter|"
     r"gouda|emmentaler|cheddar"
 )
+# Meat/fish substitutes ("veganes Hack") must not count as animal products.
+VEGAN_PRODUCT_RE = re.compile(r"vegan|veggie|pflanzlich|planted|plant-based")
 _PLANT_MILK_RE = re.compile(r"(kokos|hafer|soja|mandel)(milch|sahne|joghurt|drink)|pflanzlich\w*|vegan\w*")
 _LACTOSE_RE = re.compile(
     r"milch|sahne|käse|joghurt|butter|quark|schmand|crème|creme fraîche|frischkäse|mozzarella|feta|parmesan|"
@@ -175,7 +178,7 @@ def matches_term(term: str, haystack: str) -> bool:
 
 def classify(recipe: Recipe) -> dict:
     """Derive diet/protein flags from the ingredient list (best-effort keyword matching)."""
-    text = ingredients_text(recipe)
+    text = " | ".join(i.name.lower() for i in recipe.ingredients if not VEGAN_PRODUCT_RE.search(i.name.lower()))
     has_meat = bool(_MEAT_RE.search(text))
     has_fish = bool(_FISH_RE.search(text))
     animal = bool(_ANIMAL_RE.search(_PLANT_MILK_RE.sub("", text)))
@@ -291,6 +294,7 @@ def parse_recipe_page(page_html: str, source_url: str) -> CatalogEntry | None:
         suggested_devices=detect_devices(" ".join(steps) + " " + str(node["name"])),
         source_url=source_url,
     )
+    recipe.price_per_serving = estimate_price_per_serving(recipe)
     return CatalogEntry(
         source_url=source_url,
         recipe=recipe,

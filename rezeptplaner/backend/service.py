@@ -4,6 +4,7 @@ import re
 from datetime import date, timedelta
 
 from .catalog import classify, ingredients_text, scale_recipe
+from .prices import estimate_price_per_serving
 from .database import PlanStore
 from .devices import normalize_device
 from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
@@ -49,7 +50,7 @@ class PlanService:
                 key=f"u:{ur.id}", name=r.name, cooking_time=r.cooking_time_minutes,
                 ingredients_text=ingredients_text(r), devices=list(r.suggested_devices),
                 protein_g=r.nutrition_per_serving.protein_g, carbs_g=r.nutrition_per_serving.carbs_g,
-                is_user=True, **classify(r),
+                price=r.price_per_serving or estimate_price_per_serving(r), is_user=True, **classify(r),
             ))
         return candidates
 
@@ -62,13 +63,11 @@ class PlanService:
         candidates = await self._candidates(user_recipes)
         if not candidates:
             raise CatalogEmpty("Der Rezeptkatalog ist noch leer. Bitte zuerst den Import starten.")
-        if only is not None:
-            candidates = [c for c in candidates if only(c)]
 
         swaps = await self._store.get_recent_swaps() + (extra_swaps or [])
         soft_avoid = [s["recipe"] for s in swaps]
         soft_avoid += await self._store.get_recent_recipe_names()
-        picks = pick_recipes(candidates, count, settings, ratings, soft_avoid, hard_avoid, swaps, self._rng)
+        picks = pick_recipes(candidates, count, settings, ratings, soft_avoid, hard_avoid, swaps, self._rng, only=only)
         if not picks:
             raise NoMatchingRecipes(
                 "Keine Rezepte passen zu deinen Einstellungen. Lockere Ernährungsform, Kochzeit oder Abneigungen."

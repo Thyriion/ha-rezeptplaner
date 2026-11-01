@@ -39,6 +39,7 @@ class Recipe(BaseModel):
     nutrition_per_serving: NutritionInfo
     suggested_devices: List[str] = []
     source_url: Optional[str] = None
+    price_per_serving: Optional[float] = None  # rough estimate in EUR
 
 
 class Meal(BaseModel):

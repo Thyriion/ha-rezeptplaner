@@ -127,6 +127,7 @@ export function renderMealCard(meal, isConfirmed) {
       ${deviceTags}
       <div class="nutrition-row">
         <div class="nut-item"><span class="nut-value">${n.calories}</span><span class="nut-label">kcal</span></div>
+        ${r.price_per_serving ? `<div class="nut-item"><span class="nut-value">≈ ${r.price_per_serving.toFixed(2).replace('.', ',')} €</span><span class="nut-label">pro Portion</span></div>` : ''}
         <div class="nut-item"><span class="nut-value">${n.protein_g}g</span><span class="nut-label">Protein</span></div>
         <div class="nut-item"><span class="nut-value">${n.carbs_g}g</span><span class="nut-label">Kohlenhydrate</span></div>
         <div class="nut-item"><span class="nut-value">${n.fat_g}g</span><span class="nut-label">Fett</span></div>

@@ -1,7 +1,9 @@
 """Rule-based recipe selection from the local catalog — no AI involved."""
+import math
 import random
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .catalog import has_gluten, has_lactose, matches_term
@@ -51,6 +53,7 @@ class Candidate:
     carbs_g: float = 0.0
     devices: list[str] = field(default_factory=list)
     is_user: bool = False
+    price: float | None = None  # rough EUR per serving
     title_tokens: frozenset[str] = field(init=False, repr=False, default=frozenset())
     name_key: str = field(init=False, repr=False, default="")
 
@@ -84,7 +87,6 @@ def _eligible(c: Candidate, settings: Settings, ratings: dict[str, int],
 
 _NAME_TOKEN_RE = re.compile(r"[A-ZÄÖÜ][a-zäöüß]{4,}")
 _GENERIC_NAME_TOKENS = {"doppe", "feine", "dazu"}
-_MANY_INGREDIENTS = 14
 
 
 def _name_tokens(name: str) -> set[str]:
@@ -112,38 +114,29 @@ def _swap_factor(c: Candidate, prepared: list[tuple[str, Candidate | None, set[s
         elif reason == "zu_aufwendig" and old and c.cooking_time >= old.cooking_time:
             factor *= 0.4
         elif reason == "zu_teuer":
-            if c.protein_type in ("fleisch", "fisch"):
+            if old and old.price is not None and c.price is not None:
+                if c.price >= old.price:
+                    factor *= 0.4
+            elif c.protein_type in ("fleisch", "fisch"):
                 factor *= 0.6
-            if c.ingredients_text.count(" | ") + 1 > _MANY_INGREDIENTS:
-                factor *= 0.7
     return max(factor, 0.05)
 
 
-_PREMIUM_RE = re.compile(
-    r"lachs|garnele|scampi|lamm|rind|steak|filet|burrata|parmesan|hummer|thunfisch|forelle|kabeljau|"
-    r"avocado|pinienkern|cashew|\bente\b|serrano|prosciutto"
-)
+# Share of the catalog (cheapest first) each budget level may draw from.
+_BUDGET_QUANTILE = {"günstig": 1 / 3, "mittel": 2 / 3}
 
 
-def _cost_score(c: Candidate) -> int:
-    """Rough price proxy: ingredient count, premium ingredients and protein type."""
-    score = c.ingredients_text.count(" | ") + 1
-    score += 3 * len(_PREMIUM_RE.findall(c.ingredients_text))
-    return score + {"fisch": 4, "fleisch": 2}.get(c.protein_type, 0)
-
-
-def _budget_factor(c: Candidate, budget: str) -> float:
-    cost = _cost_score(c)
-    if budget == "günstig":
-        factor = max(0.9 ** max(0, cost - 12), 0.1)
-        return factor * (1.3 if c.protein_type == "vegetarisch" else 1.0)
-    if budget == "mittel":
-        return max(0.95 ** max(0, cost - 18), 0.4)
-    return 1.0
+def _budget_limit(candidates: list[Candidate], budget: str) -> float | None:
+    """Price ceiling (EUR/serving) for the budget level, taken from the catalog's price distribution."""
+    share = _BUDGET_QUANTILE.get(budget)
+    prices = sorted(c.price for c in candidates if c.price is not None)
+    if share is None or not prices:
+        return None
+    return prices[max(0, math.ceil(len(prices) * share) - 1)]
 
 
 def _weight(c: Candidate, settings: Settings, ratings: dict[str, int]) -> float:
-    weight = _budget_factor(c, settings.budget)
+    weight = 1.0
     if ratings.get(c.name, 5) >= 8:
         weight *= 3
     if c.is_user:
@@ -182,6 +175,7 @@ def pick_recipes(
     hard_avoid_names: list[str] | None = None,
     swaps: list[dict] | None = None,
     rng: random.Random | None = None,
+    only: Callable[[Candidate], bool] | None = None,
 ) -> list[Candidate]:
     """Weighted random pick of up to `count` distinct, non-near-duplicate recipes.
 
@@ -210,12 +204,20 @@ def pick_recipes(
     hard_similar = similar_to_any(hard_avoid_names)
     all_similar = hard_similar | similar_to_any(avoid_names)
 
+    # Budget tiers are computed on the full catalog, before any `only` narrowing.
+    budget_limit = _budget_limit(candidates, settings.budget)
+
+    def affordable(c: Candidate) -> bool:
+        return budget_limit is None or c.price is None or c.price <= budget_limit
+
+    # Stages relax constraints in order: recent meals, then the time limit, then the budget.
     pool: list[Candidate] = []
-    for excluded, similar, time_factor in ((hard | soft, all_similar, 1.0),
-                                           (hard, hard_similar, 1.0),
-                                           (hard, hard_similar, 1.5)):
+    for excluded, similar, time_factor, budget_ok in (
+            (hard | soft, all_similar, 1.0, True), (hard, hard_similar, 1.0, True),
+            (hard, hard_similar, 1.5, True), (hard, hard_similar, 1.5, False)):
         pool = [c for i, c in enumerate(candidates)
-                if i not in similar and _eligible(c, settings, ratings, excluded, time_factor)]
+                if i not in similar and (not budget_ok or affordable(c)) and (only is None or only(c))
+                and _eligible(c, settings, ratings, excluded, time_factor)]
         if len({c.name_key for c in pool}) >= count:
             break
 

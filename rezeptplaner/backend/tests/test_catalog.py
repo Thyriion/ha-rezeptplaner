@@ -5,6 +5,7 @@ import pytest
 from ..catalog import classify, parse_ingredient, parse_recipe_page, scale_recipe
 from ..database import MemoryPlanStore
 from ..importer import CatalogImporter
+from ..prices import estimate_price_per_serving
 from .conftest import make_recipe
 
 
@@ -63,6 +64,11 @@ def test_classify_diet_flags():
     assert classify(fish)["protein_type"] == "fisch" and not classify(fish)["is_vegetarian"]
 
 
+def test_vegan_meat_substitutes_are_not_meat():
+    recipe = make_recipe("Chili", ingredient="Veganes Hack")
+    assert classify(recipe)["is_vegan"] and classify(recipe)["protein_type"] == "vegetarisch"
+
+
 def test_scale_recipe_scales_amounts_and_servings():
     scaled = scale_recipe(make_recipe(servings=2), 3)
     assert scaled.servings == 3 and scaled.ingredients[0].amount == 300
@@ -88,3 +94,28 @@ async def test_importer_imports_new_first_and_resumes():
     status = await importer.run_to_completion()
     assert status["total"] == 1 and status["imported"] == 1  # only "Alt" is left
     assert await store.catalog_count() == 2
+
+
+def test_price_estimate_is_plausible_and_ranks_ingredients():
+    from ..models import Ingredient
+    def recipe(*ings):
+        return make_recipe().model_copy(update={"servings": 2, "ingredients": [
+            Ingredient(name=n, amount=a, unit=u, category="Sonstiges") for n, a, u in ings]})
+    pasta = estimate_price_per_serving(recipe(("Penne", 270, "g"), ("Tomatenmark", 20, "g"), ("Salz", 0, "nach Geschmack")))
+    lachs = estimate_price_per_serving(recipe(("Lachsfilet", 300, "g"), ("Reis", 200, "g")))
+    assert 0.3 < pasta < 1.5 and lachs > 3 * pasta
+    assert parse_recipe_page(_page(), "u").recipe.price_per_serving > 0
+
+
+@pytest.mark.asyncio
+async def test_store_backfills_missing_prices():
+    import aiosqlite
+    from .conftest import make_entry
+    store = await MemoryPlanStore.init()
+    await store.catalog_add(make_entry("Alt", ingredient="Lachsfilet"))
+    async with aiosqlite.connect(store._db_path) as db:
+        await db.execute("UPDATE catalog_recipes SET price_per_serving = NULL")
+        await db.commit()
+    await store._backfill_prices()
+    [cand] = await store.catalog_candidates()
+    assert cand.price and cand.price > 0 and cand.protein_type == "fisch"
