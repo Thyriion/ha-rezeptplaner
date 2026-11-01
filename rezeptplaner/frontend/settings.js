@@ -97,6 +97,9 @@ export function openSettings() {
   document.querySelectorAll('#settings-spicy-options .option-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.value === String(s.likes_spicy ?? false))
   );
+  document.querySelectorAll('#settings-own-options .option-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.value === (s.own_recipe_frequency || 'normal'))
+  );
   const selectedDevices = s.available_devices || [];
   renderDeviceChips(selectedDevices);
   const customDevices = selectedDevices.filter(d => !predefinedDevices.includes(d));
@@ -153,6 +156,7 @@ export async function saveSettings() {
     max_cooking_time: parseInt(document.querySelector('#settings-time-options .option-btn.active')?.dataset.value || 30),
     budget: document.querySelector('#settings-budget-options .option-btn.active')?.dataset.value || 'mittel',
     likes_spicy: document.querySelector('#settings-spicy-options .option-btn.active')?.dataset.value === 'true',
+    own_recipe_frequency: document.querySelector('#settings-own-options .option-btn.active')?.dataset.value || 'normal',
     available_devices: [...selectedPredefined, ...getTagValues('settings-device')],
   }).catch(() => null);
   if (saved) { planState.settings = saved; closeSettings(); showToast('Einstellungen gespeichert!', 'success'); }

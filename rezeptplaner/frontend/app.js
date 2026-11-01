@@ -89,7 +89,7 @@ Object.assign(window, {
 
 document.addEventListener('DOMContentLoaded', () => {
   // Single-select option groups
-  ['time-options','budget-options','settings-time-options','settings-budget-options','spicy-options','settings-spicy-options'].forEach(id => {
+  ['time-options','budget-options','settings-time-options','settings-budget-options','spicy-options','settings-spicy-options','settings-own-options'].forEach(id => {
     document.getElementById(id)?.querySelectorAll('.option-btn').forEach(btn =>
       btn.addEventListener('click', () => {
         btn.closest('.option-group').querySelectorAll('.option-btn').forEach(b => b.classList.remove('active'));

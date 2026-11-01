@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.14.1 – 2026-11-01
+
+### Neue Features
+- **Eigene Rezepte kommen öfter vor**: Sie werden über eine Quote gezogen, die mit der Zahl der eigenen Rezepte wächst (jedes etwa alle 5 Wochen; mind. 10 %, höchstens 35 % pro Gericht-Slot). Neue Einstellung „Eigene Rezepte im Plan“: Selten / Normal / Oft. Bei der Chat-Suche werden eigene Treffer deutlich bevorzugt. Kürzlich gekochte eigene Rezepte pausieren weiter einige Wochen, Bewertungen unter 3 schließen sie aus, Budget-Grenze gilt für sie nicht.
+
+---
+
 ## 0.14.0 – 2026-11-01
 
 ### Neue Features

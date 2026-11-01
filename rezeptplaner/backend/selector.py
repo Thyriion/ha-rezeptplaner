@@ -16,6 +16,19 @@ _LOW_CARB_MAX_G = 50
 _HIGH_PROTEIN_MIN_G = 30
 
 
+# Own recipes would vanish in a catalog of thousands, so they are drawn via a quota: the chance per
+# pick that a UserRecipe is chosen instead of a catalog recipe. It grows with the number of own
+# recipes so that each shows up about every _OWN_RECIPE_WEEKS weeks (9 slots per plan).
+_OWN_RECIPE_WEEKS = 5
+_OWN_SHARE_MIN, _OWN_SHARE_MAX = 0.1, 0.35
+_OWN_FREQUENCY = {"selten": 0.5, "normal": 1.0, "oft": 2.0}
+_OWN_RECIPE_SHARE_IN_SEARCH = 0.5
+
+
+def own_recipe_share(n_own: int, frequency: str = "normal") -> float:
+    base = min(_OWN_SHARE_MAX, max(_OWN_SHARE_MIN, n_own / (_OWN_RECIPE_WEEKS * 9)))
+    return min(0.5, base * _OWN_FREQUENCY.get(frequency, 1.0))
+
 # Titles whose word sets overlap at least this much count as near-duplicates.
 _SIMILAR_TITLE = 0.6
 _TITLE_WORD_RE = re.compile(r"[a-zäöüß0-9]+")
@@ -129,7 +142,7 @@ _BUDGET_QUANTILE = {"günstig": 1 / 3, "mittel": 2 / 3}
 def _budget_limit(candidates: list[Candidate], budget: str) -> float | None:
     """Price ceiling (EUR/serving) for the budget level, taken from the catalog's price distribution."""
     share = _BUDGET_QUANTILE.get(budget)
-    prices = sorted(c.price for c in candidates if c.price is not None)
+    prices = sorted(c.price for c in candidates if c.price is not None and not c.is_user)
     if share is None or not prices:
         return None
     return prices[max(0, math.ceil(len(prices) * share) - 1)]
@@ -139,8 +152,6 @@ def _weight(c: Candidate, settings: Settings, ratings: dict[str, int]) -> float:
     weight = 1.0
     if ratings.get(c.name, 5) >= 8:
         weight *= 3
-    if c.is_user:
-        weight *= 2
     haystack = f"{c.name.lower()} {c.ingredients_text}"
     if any(matches_term(f, haystack) for f in settings.favorite_foods):
         weight *= 2
@@ -208,7 +219,7 @@ def pick_recipes(
     budget_limit = _budget_limit(candidates, settings.budget)
 
     def affordable(c: Candidate) -> bool:
-        return budget_limit is None or c.price is None or c.price <= budget_limit
+        return budget_limit is None or c.is_user or c.price is None or c.price <= budget_limit
 
     # Stages relax constraints in order: recent meals, then the time limit, then the budget.
     pool: list[Candidate] = []
@@ -228,9 +239,13 @@ def pick_recipes(
 
     picked: list[Candidate] = []
     type_counts: dict[str, int] = {}
+    own_share = (own_recipe_share(sum(c.is_user for c in pool), settings.own_recipe_frequency)
+                 if only is None else _OWN_RECIPE_SHARE_IN_SEARCH)
     while pool and len(picked) < count:
-        weights = [base[c.key] * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0) for c in pool]
-        choice = rng.choices(pool, weights=weights, k=1)[0]
+        draw_own = any(c.is_user for c in pool) and rng.random() < own_share
+        candidates_now = [c for c in pool if c.is_user == draw_own] or pool
+        weights = [base[c.key] * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0) for c in candidates_now]
+        choice = rng.choices(candidates_now, weights=weights, k=1)[0]
         picked.append(choice)
         type_counts[choice.protein_type] = type_counts.get(choice.protein_type, 0) + 1
         dupes = _similar_indices(index, candidates, choice.title_tokens) | {pool_index[choice.key]}

@@ -1,7 +1,7 @@
 import random
 
 from ..models import Settings
-from ..selector import Candidate, _prepare_swaps, _swap_factor, pick_recipes
+from ..selector import Candidate, _prepare_swaps, own_recipe_share, _swap_factor, pick_recipes
 
 
 def _cand(i: int, ingredients: str = "nudeln", protein: str = "vegetarisch", **kw) -> Candidate:
@@ -107,3 +107,45 @@ def test_variants_of_avoided_recipes_are_blocked():
     assert names == {"Pizza Margherita"}
     soft = pick_recipes(cands, 1, Settings(), avoid_names=["Gnocchi in feiner Tomatensoße"], rng=random.Random(0))
     assert soft[0].name == "Pizza Margherita"
+
+
+def test_own_recipes_appear_in_a_good_share_of_plans_but_not_all():
+    cands = [_cand(i, name=f"Katalog {chr(97 + i % 26)}{chr(97 + i // 26)}") for i in range(80)]
+    cands.append(_cand(999, name="Omas Eintopf", is_user=True))
+    plans_with_own = sum(
+        any(c.is_user for c in pick_recipes(cands, 9, Settings(), rng=random.Random(seed)))
+        for seed in range(400)
+    )
+    assert 0.5 < plans_with_own / 400 < 0.72
+
+
+def test_own_recipes_are_favoured_in_searches():
+    cands = [_cand(i, name=f"Hähnchen {chr(97 + i)}") for i in range(10)] + [_cand(99, name="Hähnchen Oma", is_user=True)]
+    hits = sum(
+        pick_recipes(cands, 1, Settings(), rng=random.Random(seed), only=lambda c: "hähnchen" in c.name.lower())[0].is_user
+        for seed in range(200)
+    )
+    assert 70 < hits < 130
+
+
+def test_own_recipes_ignore_the_budget_limit():
+    cands = [_cand(i, name=f"Katalog {chr(97 + i)}", price=1.0 + i) for i in range(9)]
+    cands.append(_cand(99, name="Omas Festtagsbraten", price=40.0, is_user=True))
+    got = pick_recipes(cands, 10, Settings(budget="günstig"), rng=random.Random(0))
+    assert "Omas Festtagsbraten" in {c.name for c in got}
+
+
+def test_own_recipe_share_grows_with_count_and_frequency():
+    assert own_recipe_share(1) == 0.1 and own_recipe_share(100) == 0.35
+    assert abs(own_recipe_share(8) - 8 / 45) < 1e-9  # ~every 5 weeks per recipe
+    assert own_recipe_share(8, "selten") < own_recipe_share(8) < own_recipe_share(8, "oft") <= 0.5
+
+
+def test_many_own_recipes_show_up_more_often():
+    cands = [_cand(i, name=f"Katalog {chr(97 + i % 26)}{chr(97 + i // 26)}") for i in range(80)]
+    cands += [_cand(900 + i, name=f"Eigenes {chr(97 + i)}", is_user=True) for i in range(8)]
+    total = sum(
+        sum(c.is_user for c in pick_recipes(cands, 9, Settings(), rng=random.Random(seed)))
+        for seed in range(300)
+    )
+    assert 1.4 < total / 300 < 2.3  # ~1.6 expected, variety/pause effects aside

@@ -13,6 +13,7 @@ class Settings(BaseModel):
     budget: str = "mittel"
     likes_spicy: bool = False
     available_devices: List[str] = []
+    own_recipe_frequency: str = "normal"  # "selten" | "normal" | "oft"
 
 
 class Ingredient(BaseModel):

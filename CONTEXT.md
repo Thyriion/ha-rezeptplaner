@@ -43,7 +43,7 @@ _Avoid_: recipe database, recipe pool
 **Selection**: Rule-based, weighted-random choice of Recipes from the RecipeCatalog and eligible UserRecipes, honouring Settings, Ratings, recent Swaps and recently cooked meals, with a variety penalty per protein type. Replaces the former AI generation.
 _Avoid_: generation, suggestion
 
-**UserRecipe**: A Recipe saved manually by the user. It joins the Selection pool alongside catalog recipes (preferred) when its Rating is ≥ 3, and can be placed into a WeekPlan via a swap. Its content is used verbatim.
+**UserRecipe**: A Recipe saved manually by the user. It joins the Selection pool when its Rating is ≥ 3 and is drawn via its own quota that grows with the number of UserRecipes (each appears about every 5 weeks; tunable via Settings `own_recipe_frequency`: selten/normal/oft) rather than competing with thousands of catalog recipes, and can be placed into a WeekPlan via a swap. Its content is used verbatim.
 _Avoid_: saved recipe, custom recipe, favourite
 
 ### Feedback & Preferences
