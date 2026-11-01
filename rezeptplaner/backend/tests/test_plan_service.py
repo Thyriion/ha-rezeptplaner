@@ -199,3 +199,37 @@ async def test_chat_plan_intent_builds_plan_and_search_returns_recipe():
 
     reply, plan, recipe = await svc.handle_chat("Sushi")
     assert plan is None and recipe is None and "kein passendes" in reply
+
+
+@pytest.mark.asyncio
+async def test_browse_catalog_filters_sorts_and_pages():
+    svc = await make_service(catalog_size=0)
+    for name, ingredient, minutes in [("Hähnchen-Curry", "Hähnchenbrust", 30), ("Pilzpfanne", "Champignons", 20),
+                                      ("Lachs-Reis", "Lachsfilet", 40), ("Gemüsesuppe", "Karotten", 25)]:
+        await svc._store.catalog_add(make_entry(name, ingredient=ingredient, cooking_time_minutes=minutes))
+
+    await svc.update_settings(Settings(max_cooking_time=60))
+    page = await svc.browse_catalog(sort="zeit")
+    assert page.total == 4 and [i.name for i in page.items] == ["Pilzpfanne", "Gemüsesuppe", "Hähnchen-Curry", "Lachs-Reis"]
+
+    assert [i.name for i in (await svc.browse_catalog(q="pilze")).items] == ["Pilzpfanne"]  # plural + category
+    assert [i.name for i in (await svc.browse_catalog(kind="fisch")).items] == ["Lachs-Reis"]
+    assert (await svc.browse_catalog(max_time=25)).total == 2
+
+    second = await svc.browse_catalog(sort="zeit", limit=2, offset=2)
+    assert second.total == 4 and [i.name for i in second.items] == ["Hähnchen-Curry", "Lachs-Reis"]
+
+    await svc.update_settings(Settings(diet_types=["Vegetarisch"], max_cooking_time=60))
+    assert (await svc.browse_catalog()).total == 2
+    assert (await svc.browse_catalog(respect_settings=False)).total == 4
+
+
+@pytest.mark.asyncio
+async def test_get_catalog_recipe_is_scaled_to_persons():
+    svc = await make_service(catalog_size=1)
+    [item] = (await svc.browse_catalog()).items
+    await svc.update_settings(Settings(persons=4))
+    recipe = await svc.get_catalog_recipe(item.id)
+    assert recipe.servings == 4
+    with pytest.raises(LookupError):
+        await svc.get_catalog_recipe(999)

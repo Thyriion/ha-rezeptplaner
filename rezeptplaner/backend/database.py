@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS catalog_recipes (
     is_spicy         INTEGER NOT NULL,
     protein_g        REAL    NOT NULL DEFAULT 0,
     price_per_serving REAL,
+    image_url        TEXT,
     carbs_g          REAL    NOT NULL DEFAULT 0,
     devices          TEXT    NOT NULL DEFAULT '[]',
     ingredients_text TEXT    NOT NULL,
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS catalog_skipped (
 """
 
 _MIGRATIONS = [
+    "ALTER TABLE catalog_recipes ADD COLUMN image_url TEXT",
     "ALTER TABLE catalog_recipes ADD COLUMN price_per_serving REAL",
     "ALTER TABLE swaps ADD COLUMN recipe_name TEXT NOT NULL DEFAULT ''",
     "ALTER TABLE meals ADD COLUMN is_leftovers INTEGER NOT NULL DEFAULT 0",
@@ -517,13 +519,13 @@ class PlanStore:
             await db.execute(
                 """INSERT OR IGNORE INTO catalog_recipes
                    (source_url, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
-                    protein_g, carbs_g, devices, ingredients_text, recipe_json, price_per_serving)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    protein_g, carbs_g, devices, ingredients_text, recipe_json, price_per_serving, image_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (entry.source_url, r.name, r.cooking_time_minutes, entry.protein_type,
                  int(entry.is_vegetarian), int(entry.is_vegan), int(entry.is_spicy),
                  r.nutrition_per_serving.protein_g, r.nutrition_per_serving.carbs_g,
                  json.dumps(r.suggested_devices), entry.ingredients_text, r.model_dump_json(),
-                 r.price_per_serving),
+                 r.price_per_serving, r.image_url),
             )
             await db.commit()
 
@@ -540,7 +542,9 @@ class PlanStore:
         async with self._conn() as db:
             async with db.execute(
                 """SELECT id, name, cooking_time, protein_type, is_vegetarian, is_vegan, is_spicy,
-                          protein_g, carbs_g, devices, ingredients_text, price_per_serving FROM catalog_recipes"""
+                          protein_g, carbs_g, devices, ingredients_text, price_per_serving,
+                          NULLIF(image_url, ''), json_extract(recipe_json, '$.nutrition_per_serving.calories')
+                   FROM catalog_recipes"""
             ) as cur:
                 rows = await cur.fetchall()
         return [
@@ -548,10 +552,25 @@ class PlanStore:
                 key=f"c:{r[0]}", name=r[1], cooking_time=r[2], protein_type=r[3],
                 is_vegetarian=bool(r[4]), is_vegan=bool(r[5]), is_spicy=bool(r[6]),
                 protein_g=r[7], carbs_g=r[8], devices=json.loads(r[9]), ingredients_text=r[10],
-                price=r[11],
+                price=r[11], image_url=r[12], calories=r[13],
             )
             for r in rows
         ]
+
+    async def catalog_urls_without_image(self) -> list[str]:
+        async with self._conn() as db:
+            async with db.execute("SELECT source_url FROM catalog_recipes WHERE image_url IS NULL") as cur:
+                return [r[0] for r in await cur.fetchall()]
+
+    async def catalog_set_image(self, source_url: str, image_url: str | None) -> None:
+        """Store a photo URL; '' marks 'looked, none found' so we do not re-fetch the page."""
+        async with self._conn() as db:
+            await db.execute(
+                "UPDATE catalog_recipes SET image_url = ?, recipe_json = json_set(recipe_json, '$.image_url', ?) "
+                "WHERE source_url = ?",
+                (image_url or "", image_url, source_url),
+            )
+            await db.commit()
 
     async def catalog_get_recipes(self, ids: list[int]) -> dict[int, Recipe]:
         if not ids:

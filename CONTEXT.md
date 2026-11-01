@@ -40,6 +40,12 @@ _Avoid_: item, food, component
 **RecipeCatalog**: The local collection of imported Recipes (source: hellofresh.de) that all selection draws from. Filled by a background import that skips incomplete source recipes. Stores derived flags (protein type, vegetarian, vegan, spicy) used for filtering.
 _Avoid_: recipe database, recipe pool
 
+**Catalog browser**: The 🔎 tab for searching and filtering the RecipeCatalog by hand (text, time, price, kind, sort) and adding a recipe straight into a WeekPlan slot. It uses the same eligibility rules as Selection when "respect my settings" is on.
+_Avoid_: recipe search, library
+
+**Staples**: Pantry items (salt, pepper, sugar, oil, vinegar and "to taste" lines) that the ShoppingList groups separately as "Habe ich zuhause" and does not push to Home Assistant.
+_Avoid_: pantry list, basics
+
 **Selection**: Rule-based, weighted-random choice of Recipes from the RecipeCatalog and eligible UserRecipes, honouring Settings, Ratings, recent Swaps and recently cooked meals, with a variety penalty per protein type. Replaces the former AI generation.
 _Avoid_: generation, suggestion
 

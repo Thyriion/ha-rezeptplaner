@@ -124,6 +124,7 @@ export function renderMealCard(meal, isConfirmed) {
       ${stars}
     </div>
     <div class="recipe-detail">
+      ${r.image_url ? `<img class="recipe-photo" src="${r.image_url}" alt="" loading="lazy">` : ''}
       ${deviceTags}
       <div class="nutrition-row">
         <div class="nut-item"><span class="nut-value">${n.calories}</span><span class="nut-label">kcal</span></div>
@@ -136,6 +137,7 @@ export function renderMealCard(meal, isConfirmed) {
       <ul class="ingredients-list">${r.ingredients.map(i => `<li><span>${i.name}</span><span class="ing-amount">${amt(i)}</span></li>`).join('')}</ul>
       <p class="section-label">Zubereitung</p>
       <ol class="steps-list">${r.steps.map(s => `<li>${s}</li>`).join('')}</ol>
+      ${r.source_url ? `<p class="source-link"><a href="${r.source_url}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">Originalrezept ansehen ↗</a></p>` : ''}
     </div>
   </div>`;
 }

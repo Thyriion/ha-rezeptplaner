@@ -3,12 +3,12 @@ import random
 import re
 from datetime import date, timedelta
 
-from .catalog import classify, ingredients_text, scale_recipe
+from .catalog import classify, ingredients_text, matches_term, scale_recipe
 from .prices import estimate_price_per_serving
 from .database import PlanStore
 from .devices import normalize_device
-from .models import Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
-from .selector import Candidate, pick_recipes
+from .models import CatalogItem, CatalogPage, Meal, PlanMeta, Recipe, Settings, SkippedSlot, UserRecipe, WeekPlan
+from .selector import Candidate, fresh_keys, is_eligible, pick_recipes
 from .slots import MEAL_SLOTS
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,49 @@ class PlanService:
     async def catalog_count(self) -> int:
         return await self._store.catalog_count()
 
+    async def browse_catalog(
+        self, *, q: str = "", max_time: int | None = None, max_price: float | None = None,
+        kind: str | None = None, respect_settings: bool = True, sort: str = "neu",
+        limit: int = 20, offset: int = 0,
+    ) -> CatalogPage:
+        """Filtered, sorted page of catalog recipes for the browse tab."""
+        candidates = await self._store.catalog_candidates()
+        settings = await self.get_settings()
+        ratings = await self._store.get_ratings()
+        terms = re.findall(r"[\wäöüß]{2,}", q.lower())
+
+        def keep(c: Candidate) -> bool:
+            haystack = f"{c.name.lower()} {c.ingredients_text}"
+            return (
+                all(matches_term(t, haystack) for t in terms)
+                and (max_time is None or c.cooking_time <= max_time)
+                and (max_price is None or c.price is None or c.price <= max_price)
+                and (kind is None or c.protein_type == kind)
+                and (not respect_settings or is_eligible(c, settings, ratings))
+            )
+
+        hits = [c for c in candidates if keep(c)]
+        sort_keys = {
+            "preis": lambda c: (c.price is None, c.price or 0),
+            "zeit": lambda c: c.cooking_time,
+        }
+        hits.sort(key=sort_keys.get(sort, lambda c: -int(c.key[2:])))
+        page = hits[offset:offset + limit]
+        return CatalogPage(total=len(hits), items=[
+            CatalogItem(
+                id=int(c.key[2:]), name=c.name, cooking_time_minutes=c.cooking_time, price_per_serving=c.price,
+                calories=c.calories, protein_type=c.protein_type, is_vegetarian=c.is_vegetarian,
+                image_url=c.image_url,
+            )
+            for c in page
+        ])
+
+    async def get_catalog_recipe(self, catalog_id: int) -> Recipe:
+        recipe = (await self._store.catalog_get_recipes([catalog_id])).get(catalog_id)
+        if recipe is None:
+            raise LookupError("Rezept nicht gefunden")
+        return scale_recipe(recipe, (await self.get_settings()).persons)
+
     # ── Recipe selection ──────────────────────────────────────────
 
     async def _candidates(self, user_recipes: list[UserRecipe]) -> list[Candidate]:
@@ -55,7 +98,8 @@ class PlanService:
         return candidates
 
     async def _pick(self, count: int, *, hard_avoid: list[str] | None = None,
-                    extra_swaps: list[dict] | None = None, only: "callable | None" = None) -> list[Recipe]:
+                    extra_swaps: list[dict] | None = None, plan_recipes: list[Recipe] | None = None,
+                    only: "callable | None" = None) -> list[Recipe]:
         """Pick `count` recipes for the household, scaled to the configured person count."""
         settings = await self.get_settings()
         ratings = await self._store.get_ratings()
@@ -67,7 +111,9 @@ class PlanService:
         swaps = await self._store.get_recent_swaps() + (extra_swaps or [])
         soft_avoid = [s["recipe"] for s in swaps]
         soft_avoid += await self._store.get_recent_recipe_names()
-        picks = pick_recipes(candidates, count, settings, ratings, soft_avoid, hard_avoid, swaps, self._rng, only=only)
+        context = fresh_keys(i.name for r in (plan_recipes or []) for i in r.ingredients)
+        picks = pick_recipes(candidates, count, settings, ratings, soft_avoid, hard_avoid, swaps, self._rng,
+                             context_fresh=context, only=only)
         if not picks:
             raise NoMatchingRecipes(
                 "Keine Rezepte passen zu deinen Einstellungen. Lockere Ernährungsform, Kochzeit oder Abneigungen."
@@ -203,7 +249,8 @@ class PlanService:
             return await self.add_recipe_to_plan(plan_id, day, meal_type, user_recipe.recipe)
 
         current_names = [m.recipe.name for m in plan.meals if not m.is_leftovers]
-        [new_recipe] = await self._pick(1, hard_avoid=current_names)
+        [new_recipe] = await self._pick(1, hard_avoid=current_names,
+                                         plan_recipes=[m.recipe for m in plan.meals if not m.is_leftovers])
         return await self.add_recipe_to_plan(plan_id, day, meal_type, new_recipe)
 
     # ── Ratings ───────────────────────────────────────────────────
@@ -296,6 +343,8 @@ class PlanService:
         [new_recipe] = await self._pick(
             1, hard_avoid=current_names + [meal.recipe.name],
             extra_swaps=[{"recipe": meal.recipe.name, "reason": reason}],
+            plan_recipes=[m.recipe for m in (current_plan.meals if current_plan else [])
+                          if m.id != meal_id and not m.is_leftovers],
         )
         return await self._store.apply_swap(meal_id, new_recipe, reason)
 

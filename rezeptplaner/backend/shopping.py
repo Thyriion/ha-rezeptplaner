@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 
 from .categories import CATEGORIES as CATEGORY_ORDER
@@ -21,6 +22,31 @@ _UNIT_ALIASES: dict[str, str] = {
 
 def _norm_unit(unit: str) -> str:
     return _UNIT_ALIASES.get(unit.lower().strip(), unit.lower().strip())
+
+
+PANTRY_CATEGORY = "Vorrat"
+_PANTRY_RE = re.compile(r"\b(salz|pfeffer|zucker|öl|olivenöl|rapsöl|sonnenblumenöl|essig|balsamico)\b")
+_NO_COST_RE = re.compile(r"^(leitungs|heißes |kaltes |warmes )?wasser\b|eiswürfel")
+
+
+def _is_pantry(item: ShoppingItem) -> bool:
+    """Staples most households own (salt, oil, ...) and 'to taste' items; not branded spice mixes."""
+    name = item.name.lower()
+    return not item.amount or (bool(_PANTRY_RE.search(name)) and "mischung" not in name and "hello" not in name)
+
+
+def _merge_pantry(items: list[ShoppingItem]) -> list[ShoppingItem]:
+    """One line per staple: amounts add up when units match, otherwise just 'nach Bedarf'."""
+    merged: dict[str, ShoppingItem] = {}
+    for item in items:
+        key = item.name.lower()
+        if key not in merged:
+            merged[key] = item.model_copy()
+        elif _norm_unit(merged[key].unit) == _norm_unit(item.unit):
+            merged[key].amount += item.amount
+        else:
+            merged[key].amount, merged[key].unit = 0, "nach Bedarf"
+    return list(merged.values())
 
 
 def _fmt(amount: float, unit: str) -> str:
@@ -54,18 +80,25 @@ def build_shopping_list(plan: WeekPlan | None) -> ShoppingList:
 
     by_cat: dict[str, list[ShoppingItem]] = defaultdict(list)
     for item in aggregated.values():
-        by_cat[item.category].append(item)
+        if _NO_COST_RE.search(item.name.lower()):
+            continue
+        by_cat[PANTRY_CATEGORY if _is_pantry(item) else item.category].append(item)
+
+    if PANTRY_CATEGORY in by_cat:
+        by_cat[PANTRY_CATEGORY] = _merge_pantry(by_cat[PANTRY_CATEGORY])
 
     return ShoppingList(items_by_category={
         cat: sorted(by_cat[cat], key=lambda x: x.name)
-        for cat in CATEGORY_ORDER
+        for cat in [*CATEGORY_ORDER, PANTRY_CATEGORY]
         if cat in by_cat
     })
 
 
 async def push_items(shopping_list: ShoppingList, client: HAClient) -> dict:
     pushed, failed = 0, 0
-    for items in shopping_list.items_by_category.values():
+    for category, items in shopping_list.items_by_category.items():
+        if category == PANTRY_CATEGORY:
+            continue  # staples are assumed to be at home
         for item in items:
             label = f"{_fmt(item.amount, item.unit)} {item.name}"
             if await client.add_item(label):

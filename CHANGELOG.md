@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.15.0 – 2026-11-01
+
+### Neue Features
+- **Katalog-Tab 🔎**: Den ganzen Rezeptkatalog durchstöbern – Suche (Zutat, Gericht, auch Kategorien wie „Pilze“), Filter für Zeit, Preis pro Portion und Art (Fleisch/Fisch/vegetarisch), Sortierung (neueste, günstigste, schnellste) und optional deine Einstellungen beachten. Rezepte lassen sich aufklappen und mit „＋ In den Plan“ direkt einem Slot zuweisen. Der Tab „Rezepte“ heißt jetzt „Eigene“.
+- **Foto und Original-Link**: Rezepte zeigen ihr Foto (von HelloFresh geladen) und einen Link zum Originalrezept, im Katalog und im Plan. Neu importierte Rezepte bekommen das Foto automatisch; für bereits importierte gibt es in den Einstellungen „Fotos nachladen“.
+- **Vorrat in der Einkaufsliste**: Salz, Pfeffer, Zucker, Öl, Essig und „nach Geschmack“-Zutaten stehen in einer eingeklappten Gruppe „Habe ich zuhause“ und werden nicht an die HA-Liste gesendet. Wasser wird nicht mehr aufgeführt.
+- **Weniger Reste, günstigerer Einkauf**: Bei der Auswahl werden Gerichte bevorzugt, die bereits geplante Frischezutaten (Pilze, Kräuter, Sahne, Zucchini, Paprika …) mitverwenden und wenige neue hinzufügen. Gilt auch beim Tauschen.
+
+### Entwicklung
+- **CI** (GitHub Actions): `pytest` und ein Frontend-Check (`scripts/check_frontend.py`: Importe, Window-Handler, JS-Syntax) laufen bei jedem Push.
+
+---
+
 ## 0.14.2 – 2026-11-01
 
 ### Bugfixes

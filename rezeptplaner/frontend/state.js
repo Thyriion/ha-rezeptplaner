@@ -70,5 +70,5 @@ export const CATEGORIES  = [
 ];
 export const CAT_ICONS   = {
   'Gemüse & Obst':'🥦','Fleisch & Fisch':'🥩','Milchprodukte & Eier':'🥛',
-  'Getreide & Backwaren':'🌾','Konserven & Trockenwaren':'🥫','Gewürze & Öle':'🫙','Sonstiges':'🛒',
+  'Getreide & Backwaren':'🌾','Konserven & Trockenwaren':'🥫','Gewürze & Öle':'🫙','Sonstiges':'🛒','Vorrat':'🏠',
 };

@@ -59,12 +59,12 @@ class CatalogImporter:
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
-    async def start(self, limit: int | None = None) -> bool:
+    async def start(self, limit: int | None = None, refresh_images: bool = False) -> bool:
         """Start a background import. Returns False if one is already running."""
         if self.running:
             return False
         self.status = self._idle_status(running=True)
-        self._task = asyncio.create_task(self._run(limit))
+        self._task = asyncio.create_task(self._run(limit, refresh_images))
         return True
 
     async def stop(self) -> None:
@@ -76,18 +76,22 @@ class CatalogImporter:
                 pass
         self.status["running"] = False
 
-    async def run_to_completion(self, limit: int | None = None) -> dict:
+    async def run_to_completion(self, limit: int | None = None, refresh_images: bool = False) -> dict:
         """Synchronous variant for tests and scripts."""
         self.status = self._idle_status(running=True)
-        await self._run(limit)
+        await self._run(limit, refresh_images)
         return self.status
 
-    async def _run(self, limit: int | None) -> None:
+    async def _run(self, limit: int | None, refresh_images: bool = False) -> None:
         try:
             sitemap = await self._fetch(SITEMAP_URL)
             urls = [u for u in _LOC_RE.findall(sitemap) if "/recipes/" in u]
-            known = await self._store.catalog_known_urls()
-            todo = sorted((u for u in urls if u not in known), key=_recency_key, reverse=True)
+            if refresh_images:
+                wanted = set(await self._store.catalog_urls_without_image())
+                todo = sorted((u for u in urls if u in wanted), key=_recency_key, reverse=True)
+            else:
+                known = await self._store.catalog_known_urls()
+                todo = sorted((u for u in urls if u not in known), key=_recency_key, reverse=True)
             if limit:
                 todo = todo[:limit]
             self.status["total"] = len(todo)
@@ -107,7 +111,10 @@ class CatalogImporter:
                         break
                     await asyncio.sleep(self._delay * 5)
                     continue
-                if entry is None:
+                if refresh_images:
+                    await self._store.catalog_set_image(url, entry.recipe.image_url if entry else None)
+                    self.status["imported"] += 1
+                elif entry is None:
                     await self._store.catalog_mark_skipped(url, "incomplete")
                     self.status["skipped"] += 1
                 else:

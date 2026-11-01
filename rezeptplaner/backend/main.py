@@ -14,6 +14,7 @@ from .models import (
     ChatRequest,
     ChatResponse,
     CatalogImportRequest,
+    CatalogPage,
     DoubleSlotRequest,
     FillSkippedSlotRequest,
     GeneratePlanRequest,
@@ -89,8 +90,26 @@ async def catalog_status():
 
 @app.post("/api/catalog/import")
 async def start_catalog_import(req: CatalogImportRequest = CatalogImportRequest()):
-    started = await _importer.start(limit=req.limit)
+    started = await _importer.start(limit=req.limit, refresh_images=req.refresh_images)
     return {"started": started, "import": _importer.status}
+
+
+@app.get("/api/catalog/browse", response_model=CatalogPage)
+async def browse_catalog(q: str = "", max_time: int | None = None, max_price: float | None = None,
+                         kind: str | None = None, respect_settings: bool = True, sort: str = "neu",
+                         limit: int = 20, offset: int = 0):
+    return await _service.browse_catalog(
+        q=q, max_time=max_time, max_price=max_price, kind=kind, respect_settings=respect_settings,
+        sort=sort, limit=min(max(limit, 1), 50), offset=max(offset, 0),
+    )
+
+
+@app.get("/api/catalog/recipe/{catalog_id}", response_model=Recipe)
+async def get_catalog_recipe(catalog_id: int):
+    try:
+        return await _service.get_catalog_recipe(catalog_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.post("/api/catalog/import/stop")

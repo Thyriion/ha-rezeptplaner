@@ -245,6 +245,18 @@ def _clean_step(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _image_url(node: dict) -> str | None:
+    image = node.get("image")
+    if isinstance(image, list):
+        image = image[0] if image else None
+    if isinstance(image, dict):
+        image = image.get("url")
+    # Old recipes only carry the CDN prefix without a file name.
+    if isinstance(image, str) and image.startswith("https://") and not image.endswith("/"):
+        return image
+    return None
+
+
 def _find_recipe_node(page_html: str) -> dict | None:
     for match in _LD_JSON_RE.finditer(page_html):
         try:
@@ -293,6 +305,7 @@ def parse_recipe_page(page_html: str, source_url: str) -> CatalogEntry | None:
         ),
         suggested_devices=detect_devices(" ".join(steps) + " " + str(node["name"])),
         source_url=source_url,
+        image_url=_image_url(node),
     )
     recipe.price_per_serving = estimate_price_per_serving(recipe)
     return CatalogEntry(

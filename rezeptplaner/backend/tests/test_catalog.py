@@ -165,3 +165,38 @@ async def test_backfill_reprices_everything_when_the_price_version_changes():
     await store._backfill_prices()  # same version now: leaves existing prices alone
     [cand] = await store.catalog_candidates()
     assert cand.price == 0.01
+
+
+def test_parse_recipe_page_reads_image_but_ignores_prefix_only_urls():
+    ok = parse_recipe_page(_page(image="https://img.hellofresh.com/f_auto,w_1200/hellofresh_s3/image/x.jpg"), "u")
+    assert ok.recipe.image_url.endswith("x.jpg")
+    assert parse_recipe_page(_page(image="https://img.hellofresh.com/f_auto,w_1200/"), "u").recipe.image_url is None
+    assert parse_recipe_page(_page(image=["https://img.example/a.jpg"]), "u").recipe.image_url == "https://img.example/a.jpg"
+
+
+@pytest.mark.asyncio
+async def test_importer_can_backfill_missing_images():
+    url = "https://www.hellofresh.de/recipes/old-5252b0fa301bbff2428b46a5"
+    pages = {url: _page(name="Alt")}
+    sitemap = f"<loc>{url}</loc>"
+
+    async def fetch(u: str) -> str:
+        return sitemap if u.endswith("sitemap_recipe_pages.xml") else pages[u]
+
+    store = await MemoryPlanStore.init()
+    importer = CatalogImporter(store, fetch=fetch, delay=0)
+    await importer.run_to_completion()
+    assert await store.catalog_urls_without_image() == [url]
+
+    pages[url] = _page(name="Alt", image="https://img.example/new.jpg")
+    await importer.run_to_completion(refresh_images=True)
+    assert await store.catalog_urls_without_image() == []
+    [cand] = await store.catalog_candidates()
+    assert cand.image_url == "https://img.example/new.jpg"
+    [recipe] = (await store.catalog_get_recipes([int(cand.key[2:])])).values()
+    assert recipe.image_url == "https://img.example/new.jpg"
+
+    # A page without photo is marked as looked-at, not retried forever.
+    pages[url] = _page(name="Alt")
+    await store.catalog_set_image(url, None)
+    assert await store.catalog_urls_without_image() == []

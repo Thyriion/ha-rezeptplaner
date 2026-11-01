@@ -47,7 +47,10 @@ export function renderShopping(list, container) {
   </div>`;
   for (const [cat, items] of Object.entries(cats)) {
     const icon = CAT_ICONS[cat] || '🛒';
-    html += `<div class="shopping-category"><div class="shopping-cat-header">${icon} ${cat}</div>`;
+    const pantry = cat === 'Vorrat';
+    html += pantry
+      ? `<details class="shopping-category shopping-pantry"><summary class="shopping-cat-header">${icon} Habe ich zuhause (${items.length}) – nicht in der HA-Liste</summary>`
+      : `<div class="shopping-category"><div class="shopping-cat-header">${icon} ${cat}</div>`;
     for (const item of items) {
       const n = item.amount === Math.floor(item.amount) ? Math.floor(item.amount) : item.amount;
       html += `<label class="shopping-item">
@@ -56,7 +59,7 @@ export function renderShopping(list, container) {
         <span class="item-amount">${item.amount ? `${n} ${item.unit}`.trim() : item.unit}</span>
       </label>`;
     }
-    html += `</div>`;
+    html += pantry ? `</details>` : `</div>`;
   }
   container.innerHTML = html;
 }

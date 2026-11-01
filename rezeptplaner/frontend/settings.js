@@ -128,11 +128,18 @@ async function refreshCatalogStatus() {
         ? `${count} Rezepte im Katalog.${imp.last_error ? ' Letzter Fehler: ' + imp.last_error : ''}`
         : 'Der Katalog ist leer. Starte den Import, um Rezepte von HelloFresh zu laden (läuft im Hintergrund, mehrere Stunden).';
     btn.textContent = imp.running ? 'Import stoppen' : (count ? 'Katalog aktualisieren' : 'Import starten');
+    document.getElementById('catalog-images-btn').disabled = imp.running || !count;
     clearTimeout(catalogTimer);
     if (imp.running && !document.getElementById('settings-modal').classList.contains('hidden')) {
       catalogTimer = setTimeout(refreshCatalogStatus, 3000);
     }
   } catch { statusEl.textContent = 'Katalogstatus nicht verfügbar.'; }
+}
+
+export async function startImageRefresh() {
+  await apiPost('api/catalog/import', { refresh_images: true });
+  showToast('Fotos werden im Hintergrund nachgeladen.', 'success');
+  await refreshCatalogStatus();
 }
 
 export async function toggleCatalogImport() {

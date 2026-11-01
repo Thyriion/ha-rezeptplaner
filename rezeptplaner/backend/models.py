@@ -41,6 +41,7 @@ class Recipe(BaseModel):
     suggested_devices: List[str] = []
     source_url: Optional[str] = None
     price_per_serving: Optional[float] = None  # rough estimate in EUR
+    image_url: Optional[str] = None
 
 
 class Meal(BaseModel):
@@ -127,6 +128,23 @@ class ShoppingList(BaseModel):
 
 class CatalogImportRequest(BaseModel):
     limit: Optional[int] = None
+    refresh_images: bool = False  # re-fetch pages of catalog recipes that have no photo yet
+
+
+class CatalogItem(BaseModel):
+    id: int
+    name: str
+    cooking_time_minutes: int
+    price_per_serving: Optional[float] = None
+    calories: Optional[int] = None
+    protein_type: str
+    is_vegetarian: bool
+    image_url: Optional[str] = None
+
+
+class CatalogPage(BaseModel):
+    total: int
+    items: List[CatalogItem]
 
 
 class GeneratePlanRequest(BaseModel):

@@ -5,6 +5,8 @@ import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import cached_property
+from collections.abc import Iterable
 
 from .catalog import has_gluten, has_lactose, matches_term
 from .models import Settings
@@ -28,6 +30,56 @@ _OWN_RECIPE_SHARE_IN_SEARCH = 0.5
 def own_recipe_share(n_own: int, frequency: str = "normal") -> float:
     base = min(_OWN_SHARE_MAX, max(_OWN_SHARE_MIN, n_own / (_OWN_RECIPE_WEEKS * 9)))
     return min(0.5, base * _OWN_FREQUENCY.get(frequency, 1.0))
+
+# Perishable ingredients worth sharing across a week's meals (less waste, cheaper shopping).
+# Meat/fish are left out on purpose: sharing them would fight the variety rule.
+_FRESH_GROUPS = {
+    "pilz": "champignon|pilz|shiitake|pfifferling|seitling",
+    "lauch": "lauch|porree|frühlingszwiebel",
+    "kräuter": "petersilie|basilikum|koriander|dill|minze|schnittlauch",
+    "sahne": "sahne|schmand|crème fraîche|creme fraiche",
+    "joghurt": "joghurt|skyr|quark",
+    "frischkäse": "frischkäse|frischecreme",
+    "zitrus": "zitrone|limette",
+    "tomate": "tomate",
+    "salat": "salat|rucola|babyspinat|spinat",
+    "feta": "feta|hirtenkäse|halloumi|mozzarella|burrata",
+    "zucchini": "zucchini",
+    "paprika": "paprika",
+    "aubergine": "aubergine",
+    "brokkoli": "brokkoli|blumenkohl|romanesco",
+    "gurke": "gurke",
+    "avocado": "avocado",
+    "ingwer": "ingwer",
+    "pak choi": "pak choi|mangold|kohlrabi|spitzkohl",
+}
+_FRESH_TOKEN_TO_KEY = {tok: key for key, alt in _FRESH_GROUPS.items() for tok in alt.split("|")}
+_FRESH_RE = re.compile("|".join(sorted(_FRESH_TOKEN_TO_KEY, key=len, reverse=True)))
+_NOT_FRESH_RE = re.compile(r"dose|stückig|passiert|gehackte|mark\b|getrocknet|pulver|püree|konserve|glas\b|paste")
+_FRESH_SHARED_LOG, _FRESH_NEW_LOG = 0.3, -0.25  # log-weight per shared / per newly introduced perishable
+
+
+def fresh_keys(ingredient_names: Iterable[str]) -> frozenset[str]:
+    """Which shareable perishable ingredients (see _FRESH_GROUPS) appear in these names."""
+    keys = set()
+    for name in ingredient_names:
+        name = name.lower()
+        if _NOT_FRESH_RE.search(name):
+            continue
+        match = _FRESH_RE.search(name)
+        if match:
+            keys.add(_FRESH_TOKEN_TO_KEY[match.group(0)])
+    return frozenset(keys)
+
+
+def _fresh_factor(c: "Candidate", planned: set[str]) -> float:
+    """Prefer recipes that reuse perishables already planned and add few new ones."""
+    if not planned:
+        return 1.0
+    shared = len(c.fresh & planned)
+    factor = math.exp(_FRESH_SHARED_LOG * shared + _FRESH_NEW_LOG * (len(c.fresh) - shared))
+    return min(5.0, max(0.2, factor))
+
 
 # Titles whose word sets overlap at least this much count as near-duplicates.
 _SIMILAR_TITLE = 0.6
@@ -67,8 +119,14 @@ class Candidate:
     devices: list[str] = field(default_factory=list)
     is_user: bool = False
     price: float | None = None  # rough EUR per serving
+    image_url: str | None = None
+    calories: int | None = None
     title_tokens: frozenset[str] = field(init=False, repr=False, default=frozenset())
     name_key: str = field(init=False, repr=False, default="")
+
+    @cached_property
+    def fresh(self) -> frozenset[str]:
+        return fresh_keys(self.ingredients_text.split(" | "))
 
     def __post_init__(self) -> None:
         self.title_tokens = title_tokens(self.name)
@@ -148,6 +206,11 @@ def _budget_limit(candidates: list[Candidate], budget: str) -> float | None:
     return prices[max(0, math.ceil(len(prices) * share) - 1)]
 
 
+def is_eligible(c: Candidate, settings: Settings, ratings: dict[str, int]) -> bool:
+    """Does the recipe fit the household's diet, dislikes, spice and time settings (and ratings)?"""
+    return _eligible(c, settings, ratings, set(), 1.0)
+
+
 def _weight(c: Candidate, settings: Settings, ratings: dict[str, int]) -> float:
     weight = 1.0
     if ratings.get(c.name, 5) >= 8:
@@ -186,6 +249,7 @@ def pick_recipes(
     hard_avoid_names: list[str] | None = None,
     swaps: list[dict] | None = None,
     rng: random.Random | None = None,
+    context_fresh: frozenset[str] = frozenset(),
     only: Callable[[Candidate], bool] | None = None,
 ) -> list[Candidate]:
     """Weighted random pick of up to `count` distinct, non-near-duplicate recipes.
@@ -239,14 +303,20 @@ def pick_recipes(
 
     picked: list[Candidate] = []
     type_counts: dict[str, int] = {}
+    shared_keys = set(context_fresh)  # perishable ingredients already planned this week
     own_share = (own_recipe_share(sum(c.is_user for c in pool), settings.own_recipe_frequency)
                  if only is None else _OWN_RECIPE_SHARE_IN_SEARCH)
     while pool and len(picked) < count:
         draw_own = any(c.is_user for c in pool) and rng.random() < own_share
         candidates_now = [c for c in pool if c.is_user == draw_own] or pool
-        weights = [base[c.key] * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0) for c in candidates_now]
+        weights = [
+            base[c.key] * _VARIETY_PENALTY ** type_counts.get(c.protein_type, 0)
+            * _fresh_factor(c, shared_keys)
+            for c in candidates_now
+        ]
         choice = rng.choices(candidates_now, weights=weights, k=1)[0]
         picked.append(choice)
+        shared_keys |= choice.fresh
         type_counts[choice.protein_type] = type_counts.get(choice.protein_type, 0) + 1
         dupes = _similar_indices(index, candidates, choice.title_tokens) | {pool_index[choice.key]}
         dupes_keys = {candidates[i].key for i in dupes} | {c.key for c in pool if c.name_key == choice.name_key}

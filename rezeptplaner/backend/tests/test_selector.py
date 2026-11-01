@@ -1,7 +1,7 @@
 import random
 
 from ..models import Settings
-from ..selector import Candidate, _prepare_swaps, own_recipe_share, _swap_factor, pick_recipes
+from ..selector import Candidate, _prepare_swaps, fresh_keys, own_recipe_share, _swap_factor, pick_recipes
 
 
 def _cand(i: int, ingredients: str = "nudeln", protein: str = "vegetarisch", **kw) -> Candidate:
@@ -149,3 +149,24 @@ def test_many_own_recipes_show_up_more_often():
         for seed in range(300)
     )
     assert 1.4 < total / 300 < 2.3  # ~1.6 expected, variety/pause effects aside
+
+
+def test_fresh_keys_group_perishables_and_skip_canned_and_dried():
+    assert fresh_keys(["Zucchini", "Champignons", "Braune Pilze", "Dosentomaten", "Paprikapulver",
+                       "stückige Tomaten", "Tomatenmark", "Hähnchenbrust"]) == {"zucchini", "pilz"}
+    assert fresh_keys(["Kirschtomaten", "Petersilie glatt", "Crème fraîche"]) == {"tomate", "kräuter", "sahne"}
+
+
+def test_recipes_sharing_planned_perishables_are_preferred():
+    sharing = _cand(1, "zucchini | nudeln", name="Zucchini-Nudeln")
+    other = _cand(2, "brokkoli | nudeln", name="Brokkoli-Nudeln")
+    wins = sum(
+        pick_recipes([sharing, other], 1, Settings(), rng=random.Random(seed),
+                     context_fresh=frozenset({"zucchini"}))[0] is sharing
+        for seed in range(400)
+    )
+    assert 0.58 < wins / 400 < 0.70  # weight ~1.35 vs ~0.78 -> ~63 %
+    wins_without = sum(
+        pick_recipes([sharing, other], 1, Settings(), rng=random.Random(seed))[0] is sharing for seed in range(400)
+    )
+    assert 0.4 < wins_without / 400 < 0.6

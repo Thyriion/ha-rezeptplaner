@@ -177,6 +177,8 @@
       <label>Rezeptkatalog</label>
       <p class="hint" id="catalog-status">Lade…</p>
       <button type="button" class="btn" id="catalog-import-btn" onclick="toggleCatalogImport()">Import starten</button>
+      <button type="button" class="btn" id="catalog-images-btn" onclick="startImageRefresh()">Fotos nachladen</button>
+      <p class="hint">Neu importierte Rezepte bekommen ihr Foto automatisch. „Fotos nachladen“ holt sie für bereits importierte nach (dauert ähnlich lange wie ein Import).</p>
     </div>
     <div class="modal-footer">
       <button class="btn btn-primary" onclick="saveSettings()">Speichern</button>
@@ -365,7 +367,8 @@
     <button class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">💬 Chat</button>
     <button class="tab-btn" data-tab="plan" onclick="switchTab('plan')">📅 Plan</button>
     <button class="tab-btn" data-tab="shopping" onclick="switchTab('shopping')">🛒 Einkauf</button>
-    <button class="tab-btn" data-tab="myrecipes" onclick="switchTab('myrecipes')">📖 Rezepte</button>
+    <button class="tab-btn" data-tab="catalog" onclick="switchTab('catalog')">🔎 Katalog</button>
+    <button class="tab-btn" data-tab="myrecipes" onclick="switchTab('myrecipes')">📖 Eigene</button>
   </nav>
 
   <section id="tab-chat" class="tab-content active">
@@ -408,6 +411,33 @@
         <p class="hint">Bestätige zuerst deinen Wochenplan.</p>
       </div>
     </div>
+  </section>
+
+  <section id="tab-catalog" class="tab-content">
+    <div class="catalog-filters">
+      <input type="search" id="catalog-q" placeholder="Zutat oder Gericht suchen …" oninput="catalogFilterChanged()">
+      <div class="catalog-filter-row">
+        <select id="catalog-time" onchange="catalogFilterChanged()" aria-label="Kochzeit">
+          <option value="">Zeit: egal</option><option value="20">bis 20 Min</option>
+          <option value="30">bis 30 Min</option><option value="45">bis 45 Min</option><option value="60">bis 60 Min</option>
+        </select>
+        <select id="catalog-price" onchange="catalogFilterChanged()" aria-label="Preis pro Portion">
+          <option value="">Preis: egal</option><option value="3.5">bis 3,50 €</option>
+          <option value="4.5">bis 4,50 €</option><option value="6">bis 6 €</option>
+        </select>
+        <select id="catalog-kind" onchange="catalogFilterChanged()" aria-label="Art">
+          <option value="">Alle Arten</option><option value="fleisch">Fleisch</option>
+          <option value="fisch">Fisch</option><option value="vegetarisch">Vegetarisch</option>
+        </select>
+        <select id="catalog-sort" onchange="catalogFilterChanged()" aria-label="Sortierung">
+          <option value="neu">Neueste zuerst</option><option value="preis">Günstigste zuerst</option>
+          <option value="zeit">Schnellste zuerst</option>
+        </select>
+      </div>
+      <label class="catalog-respect"><input type="checkbox" id="catalog-respect" checked onchange="catalogFilterChanged()">
+        Meine Einstellungen beachten (Ernährung, Abneigungen, Kochzeit)</label>
+    </div>
+    <div id="catalog-results" class="catalog-results"></div>
   </section>
 
   <section id="tab-myrecipes" class="tab-content">

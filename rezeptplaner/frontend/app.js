@@ -12,6 +12,8 @@ import { loadUserRecipes, renderUserRecipes, toggleUserRecipe,
          editUserRecipeById, addIngredientRow, addStepRow } from './myrecipes.js';
 import { openCooking, closeCooking, cookingPrev, cookingNext,
          toggleCookingTimer, stopCookingAlarm } from './cooking.js';
+import { openCatalogTab, catalogFilterChanged, catalogMore, toggleCatalogRecipe,
+         addCatalogRecipeToPlan } from './catalog.js';
 import { loadShopping, toggleCheck, pushToHA, navigateShopping } from './shopping.js';
 import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
          appendMsg, openAddToPlanModal, closeAddToPlanModal,
@@ -19,7 +21,7 @@ import { sendChat, chatKeydown, quickGeneratePlan, quickSingleRecipe,
 import { showWizard, updateWizardStep, wizardBack, wizardNext, adjustPersons,
          openSettings, closeSettings, saveSettings, adjustSettingsPersons,
          addTag, removeTag, tagKeydown, loadKitchenDevices, toggleDeviceChip,
-         toggleCatalogImport } from './settings.js';
+         toggleCatalogImport, startImageRefresh } from './settings.js';
 
 // ── Toast ─────────────────────────────────────────────────────────
 
@@ -41,6 +43,7 @@ export function switchTab(tab) {
     s.classList.toggle('active', s.id === `tab-${tab}`)
   );
   if (tab === 'shopping') loadShopping();
+  if (tab === 'catalog') openCatalogTab();
 }
 
 // ── Init ──────────────────────────────────────────────────────────
@@ -71,6 +74,8 @@ Object.assign(window, {
   skipSlot, doubleSlot, undoDouble, openSwapSkippedSlot,
   // cooking
   openCooking, closeCooking, cookingPrev, cookingNext, toggleCookingTimer, stopCookingAlarm,
+  // catalog
+  catalogFilterChanged, catalogMore, toggleCatalogRecipe, addCatalogRecipeToPlan,
   // shopping
   toggleCheck, pushToHA, navigateShopping,
   // chat
@@ -79,7 +84,7 @@ Object.assign(window, {
   // settings
   showWizard, wizardBack, wizardNext, adjustPersons,
   openSettings, closeSettings, saveSettings, adjustSettingsPersons,
-  addTag, removeTag, tagKeydown, toggleDeviceChip, toggleCatalogImport,
+  addTag, removeTag, tagKeydown, toggleDeviceChip, toggleCatalogImport, startImageRefresh,
   // my recipes
   toggleUserRecipe, openRecipeForm, closeRecipeForm,
   saveUserRecipe, deleteUserRecipeById, editUserRecipeById, addIngredientRow, addStepRow,
